@@ -1,0 +1,121 @@
+﻿<Window x:Class="ComicTrans.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Comic Translator"
+        Width="1400"
+        Height="900">
+
+    <DockPanel>
+
+        <!-- Thanh công cụ -->
+        <ToolBar DockPanel.Dock="Top">
+
+            <Button x:Name="btnOpen"
+                    Width="90"
+                    Margin="5"
+                    Content="Open" Click="btnOpen_Click"/>
+
+            <Button x:Name="btnOCR" 
+                    Width="90"
+                    Margin="5"
+                    Content="OCR" Click="Button_Click"/>
+
+            <Button Width="90"
+                    Margin="5"
+                    Content="Translate"/>
+
+            <Button Width="90"
+                    Margin="5"
+                    Content="Export"/>
+
+        </ToolBar>
+
+        <Grid>
+
+            <Grid.ColumnDefinitions>
+
+                <ColumnDefinition Width="250"/>
+
+                <ColumnDefinition Width="*"/>
+
+                <ColumnDefinition Width="300"/>
+
+            </Grid.ColumnDefinitions>
+
+            <!-- Panel trái -->
+            <Border Grid.Column="0"
+                    BorderBrush="Gray"
+                    BorderThickness="1">
+
+                <StackPanel Margin="10">
+
+                    <TextBlock
+                        FontWeight="Bold"
+                        FontSize="18"
+                        Text="Pages"/>
+
+                </StackPanel>
+
+            </Border>
+
+            <!-- Ảnh -->
+            <Border Grid.Column="1"
+                    BorderBrush="Gray"
+                     BorderThickness="1">
+
+                <Viewbox Stretch="Uniform">
+
+                    <Grid>
+
+                        <Image x:Name="imgComic"
+                                Stretch="Uniform"/>
+
+                        <Canvas x:Name="overlayCanvas"
+                                Background="Transparent"
+                                IsHitTestVisible="False"/>
+
+                    </Grid>
+
+                </Viewbox>
+
+            </Border>
+
+            <!-- Panel phải -->
+            <Border Grid.Column="2"
+        BorderBrush="Gray"
+        BorderThickness="1">
+
+                <DockPanel>
+
+                    <TextBlock DockPanel.Dock="Top"
+                   Margin="10"
+                   FontWeight="Bold"
+                   FontSize="18"
+                   Text="OCR Result"/>
+
+                    <ListView x:Name="lvOcrResult"
+                  SelectionChanged="lvOcrResult_SelectionChanged">
+
+                        <ListView.View>
+
+                            <GridView>
+
+                                <GridViewColumn Header="Text"
+                                    Width="300"
+                                    DisplayMemberBinding="{Binding Text}"/>
+
+                            </GridView>
+
+                        </ListView.View>
+
+                    </ListView>
+
+                </DockPanel>
+
+            </Border>
+
+        </Grid>
+
+    </DockPanel>
+
+</Window>
