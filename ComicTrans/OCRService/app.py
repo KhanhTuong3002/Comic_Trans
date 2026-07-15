@@ -68,7 +68,7 @@ def recognize():
 
         # 3. Sắp xếp thứ tự đọc
         bubbles = sort_bubbles(bubbles)
-        print("========== RESULT ==========")
+        print("========== RESULT =========")
         for b in bubbles:
             print(f"[{b.id}] {b.text}")
 
