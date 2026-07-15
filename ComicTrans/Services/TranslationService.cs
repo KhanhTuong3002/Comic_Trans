@@ -167,7 +167,7 @@ namespace ComicTrans.Services
                 return translatedList ?? new List<string>();
             }
 
-            return translatedList;
+            return translatedList; //
         }
     }
 }
