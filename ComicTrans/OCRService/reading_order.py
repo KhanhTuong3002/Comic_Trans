@@ -10,7 +10,7 @@ def compare_bubbles(
     style: ReadingStyle = ReadingStyle.MANGA
 ):
     """
-    So sánh hai Bubble theo thứ tự đọc.
+    So sánh hai Bubble theo thứ tự đọcc.
     """
 
     ax = center_x(a)
