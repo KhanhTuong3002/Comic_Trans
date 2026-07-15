@@ -164,6 +164,8 @@ public partial class MainWindow : Window
                     var results = await _ocrService.RecognizeAsync(page.ImagePath, lang);
                     page.OcrResults = results;
                     page.IsTranslated = false; // Reset trạng thái dịch vì chữ vừa quét mới
+                    page.IsReplaced = false;
+                    page.CleanImagePath = null;
 
                     // Nếu trang đang xử lý trùng khớp với trang đang được chọn, cập nhật UI
                     if (lbPages.SelectedItem == page)
@@ -387,7 +389,9 @@ public partial class MainWindow : Window
 
     private void LoadPage(PageItem page)
     {
-        _currentImagePath = page.ImagePath;
+        _currentImagePath = (page.IsReplaced && !string.IsNullOrEmpty(page.CleanImagePath) && File.Exists(page.CleanImagePath))
+            ? page.CleanImagePath
+            : page.ImagePath;
 
         BitmapImage bitmap = new();
         bitmap.BeginInit();
@@ -408,7 +412,211 @@ public partial class MainWindow : Window
 
         if (_ocrResults != null && _ocrResults.Count > 0)
         {
-            DrawOcrBoxes();
+            if (page.IsReplaced)
+            {
+                DrawTranslatedText();
+            }
+            else
+            {
+                DrawOcrBoxes();
+            }
+        }
+    }
+
+    private void DrawTranslatedText()
+    {
+        overlayCanvas.Children.Clear();
+        _rectangles.Clear();
+
+        foreach (var item in _ocrResults)
+        {
+            if (item.Box.Count != 4)
+                continue;
+
+            double left = item.Box.Min(p => p[0]);
+            double top = item.Box.Min(p => p[1]);
+            double right = item.Box.Max(p => p[0]);
+            double bottom = item.Box.Max(p => p[1]);
+
+            double width = right - left;
+            double height = bottom - top;
+
+            TextBox textBox = new()
+            {
+                Width = width,
+                Height = height,
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                TextWrapping = TextWrapping.Wrap,
+                TextAlignment = TextAlignment.Center,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                FontFamily = new FontFamily("Segoe UI"),
+                FontWeight = FontWeights.Bold,
+                AcceptsReturn = true,
+                Padding = new Thickness(2),
+                Margin = new Thickness(0)
+            };
+
+            // Tính toán cỡ chữ tối ưu lúc ban đầu hoặc lấy cỡ chữ tùy biến đã lưu
+            if (item.FontSize > 0)
+            {
+                textBox.FontSize = item.FontSize;
+            }
+            else
+            {
+                textBox.FontSize = CalculateOptimalFontSize(item.Text, width, height);
+            }
+
+            // Ràng buộc 2 chiều văn bản dịch
+            System.Windows.Data.Binding binding = new("Text")
+            {
+                Source = item,
+                Mode = System.Windows.Data.BindingMode.TwoWay,
+                UpdateSourceTrigger = System.Windows.Data.UpdateSourceTrigger.PropertyChanged
+            };
+            textBox.SetBinding(TextBox.TextProperty, binding);
+
+            // Tự động tìm lại cỡ chữ khi người dùng chỉnh sửa văn bản trực tiếp trên Canvas (chỉ khi chưa chỉnh cỡ chữ thủ công)
+            textBox.TextChanged += (s, e) =>
+            {
+                if (s is TextBox tb && item.FontSize <= 0)
+                {
+                    tb.FontSize = CalculateOptimalFontSize(tb.Text, width, height);
+                }
+            };
+
+            // Cho phép điều chỉnh cỡ chữ bằng cuộn chuột
+            textBox.PreviewMouseWheel += (s, e) =>
+            {
+                if (s is TextBox tb)
+                {
+                    double step = e.Delta > 0 ? 0.5 : -0.5;
+                    double currentSize = tb.FontSize;
+                    double newSize = Math.Clamp(currentSize + step, 4, 100);
+                    tb.FontSize = newSize;
+                    item.FontSize = newSize; // Lưu lại kích cỡ chữ tùy biến
+                    e.Handled = true; // Ngăn chặn cuộn lan ra ngoài ảnh
+                }
+            };
+
+            // Viền chữ bằng hiệu ứng bóng mờ màu trắng để tăng độ tương phản trên nền tối
+            var outlineEffect = new System.Windows.Media.Effects.DropShadowEffect
+            {
+                Color = Colors.White,
+                BlurRadius = 3,
+                ShadowDepth = 0,
+                Opacity = 1.0
+            };
+            textBox.Effect = outlineEffect;
+
+            Canvas.SetLeft(textBox, left);
+            Canvas.SetTop(textBox, top);
+
+            overlayCanvas.Children.Add(textBox);
+        }
+    }
+
+    private double CalculateOptimalFontSize(string text, double width, double height)
+    {
+        if (string.IsNullOrEmpty(text)) return 12;
+
+        double min = 6;
+        double max = 40;
+        double optimal = 12;
+
+        for (int i = 0; i < 5; i++)
+        {
+            double mid = (min + max) / 2;
+            FormattedText formattedText = new FormattedText(
+                text,
+                System.Globalization.CultureInfo.InvariantCulture,
+                FlowDirection.LeftToRight,
+                new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.Bold, FontStretches.Normal),
+                mid,
+                Brushes.Black,
+                VisualTreeHelper.GetDpi(this).PixelsPerDip)
+            {
+                MaxTextWidth = width,
+                MaxTextHeight = double.PositiveInfinity
+            };
+
+            if (formattedText.Height <= height)
+            {
+                optimal = mid;
+                min = mid + 0.5;
+            }
+            else
+            {
+                max = mid - 0.5;
+            }
+        }
+        return optimal;
+    }
+
+    private async void btnReplace_Click(object sender, RoutedEventArgs e)
+    {
+        if (lbPages.SelectedItem is not PageItem selectedPage)
+        {
+            MessageBox.Show("Vui lòng mở ảnh trước.");
+            return;
+        }
+
+        if (selectedPage.OcrResults == null || selectedPage.OcrResults.Count == 0)
+        {
+            MessageBox.Show("Trang này chưa được quét OCR. Vui lòng quét OCR và dịch trước khi thay thế.");
+            return;
+        }
+
+        // Nếu đã thay thế rồi, bấm lại sẽ tắt chế độ thay thế
+        if (selectedPage.IsReplaced)
+        {
+            selectedPage.IsReplaced = false;
+            LoadPage(selectedPage);
+            txtStatus.Text = "Đã tắt chế độ thay thế.";
+            return;
+        }
+
+        try
+        {
+            btnReplace.IsEnabled = false;
+            pbProgress.Visibility = Visibility.Visible;
+            pbProgress.IsIndeterminate = true;
+            txtStatus.Text = "Đang thực hiện xóa chữ và thay thế bằng chữ dịch...";
+
+            // Thu thập các bounding box
+            var boxes = new List<List<List<double>>>();
+            foreach (var result in selectedPage.OcrResults)
+            {
+                boxes.Add(result.Box);
+            }
+
+            // Gọi API inpaint
+            byte[] cleanImageBytes = await _ocrService.InpaintAsync(selectedPage.ImagePath, boxes);
+
+            // Lưu file tạm sạch chữ
+            string dir = System.IO.Path.GetDirectoryName(selectedPage.ImagePath) ?? "";
+            string fileName = System.IO.Path.GetFileNameWithoutExtension(selectedPage.ImagePath) + "_clean.png";
+            string cleanPath = System.IO.Path.Combine(dir, fileName);
+
+            await File.WriteAllBytesAsync(cleanPath, cleanImageBytes);
+
+            selectedPage.CleanImagePath = cleanPath;
+            selectedPage.IsReplaced = true;
+
+            // Nạp lại trang hiển thị mới
+            LoadPage(selectedPage);
+            txtStatus.Text = "Thay thế chữ hoàn tất. Mẹo: Cuộn chuột trên chữ dịch để phóng to/thu nhỏ.";
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Lỗi khi thực hiện thay thế chữ: {ex.Message}");
+            txtStatus.Text = "Lỗi thay thế chữ.";
+        }
+        finally
+        {
+            btnReplace.IsEnabled = true;
+            pbProgress.Visibility = Visibility.Collapsed;
+            pbProgress.IsIndeterminate = false;
         }
     }
 
@@ -502,6 +710,8 @@ public partial class MainWindow : Window
                 var results = await _ocrService.RecognizeAsync(selectedPage.ImagePath, lang);
                 selectedPage.OcrResults = results;
                 selectedPage.IsTranslated = false; // Reset trạng thái dịch
+                selectedPage.IsReplaced = false;
+                selectedPage.CleanImagePath = null;
 
                 _ocrResults = results;
                 DrawOcrBoxes();
@@ -568,6 +778,8 @@ public partial class MainWindow : Window
         {
             selectedPage.OcrResults = new List<OcrResult>();
             selectedPage.IsTranslated = false;
+            selectedPage.IsReplaced = false;
+            selectedPage.CleanImagePath = null;
             
             if (lbPages.SelectedItem == selectedPage)
             {
@@ -665,6 +877,9 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Tự động dọn dẹp các tiến trình Python cũ đã khởi động từ venv này để tránh xung đột cổng 5000
+        KillExistingOcrProcesses(pythonExe);
+
         try
         {
             txtStatus.Text = "Đang khởi động dịch vụ OCR (Flask)...";
@@ -689,6 +904,212 @@ public partial class MainWindow : Window
         {
             MessageBox.Show($"Lỗi khi tự động khởi động dịch vụ OCR: {ex.Message}");
         }
+    }
+
+    private void KillExistingOcrProcesses(string pythonExePath)
+    {
+        try
+        {
+            var processes = System.Diagnostics.Process.GetProcessesByName("python");
+            foreach (var p in processes)
+            {
+                try
+                {
+                    string? exePath = p.MainModule?.FileName;
+                    if (exePath != null && string.Equals(exePath, pythonExePath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Killing existing OCR python process with PID {p.Id}");
+                        p.Kill(true);
+                    }
+                }
+                catch
+                {
+                    // Bỏ qua nếu không có quyền truy cập vào MainModule của tiến trình khác (ví dụ của OS hoặc user khác)
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Error cleaning up old python processes: {ex.Message}");
+        }
+    }
+
+    private async void btnExport_Click(object sender, RoutedEventArgs e)
+    {
+        var replacedPages = _pages.Where(p => p.IsReplaced && !string.IsNullOrEmpty(p.CleanImagePath) && File.Exists(p.CleanImagePath)).ToList();
+
+        if (replacedPages.Count == 0)
+        {
+            MessageBox.Show("Không tìm thấy trang nào đã được thực hiện 'Thay thế' để xuất. Vui lòng bấm nút 'Thay thế' ở các trang bạn muốn xuất trước.", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var confirmResult = MessageBox.Show(
+            $"Bạn có chắc chắn muốn xuất toàn bộ {replacedPages.Count} trang ảnh đã được thay thế chữ dịch không?",
+            "Xác nhận xuất ảnh",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+
+        if (confirmResult != MessageBoxResult.Yes)
+            return;
+
+        var folderDlg = new Microsoft.Win32.OpenFolderDialog
+        {
+            Title = "Chọn thư mục xuất ảnh đã dịch"
+        };
+
+        if (folderDlg.ShowDialog() != true)
+            return;
+
+        string outputDir = folderDlg.FolderName;
+
+        try
+        {
+            btnExport.IsEnabled = false;
+            pbProgress.Visibility = Visibility.Visible;
+            pbProgress.Maximum = replacedPages.Count;
+            pbProgress.Value = 0;
+            Mouse.OverrideCursor = Cursors.Wait;
+
+            for (int i = 0; i < replacedPages.Count; i++)
+            {
+                var page = replacedPages[i];
+                txtStatus.Text = $"Đang xuất ảnh {i + 1}/{replacedPages.Count}: {page.PageName}...";
+                pbProgress.Value = i;
+
+                string outputFileName = System.IO.Path.ChangeExtension(page.PageName, ".png");
+                string outputPath = System.IO.Path.Combine(outputDir, outputFileName);
+                
+                // Thực thi tác vụ render trên luồng giao diện (STA thread)
+                await Task.Run(() => 
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        SaveReplacedImage(page, outputPath);
+                    });
+                });
+            }
+
+            pbProgress.Value = replacedPages.Count;
+            txtStatus.Text = $"Đã xuất thành công {replacedPages.Count} ảnh vào thư mục: {outputDir}";
+            MessageBox.Show($"Đã xuất thành công {replacedPages.Count} ảnh đã được dịch!", "Xuất ảnh hoàn tất", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Lỗi trong quá trình xuất ảnh: {ex.Message}", "Lỗi xuất ảnh", MessageBoxButton.OK, MessageBoxImage.Error);
+            txtStatus.Text = "Lỗi xuất ảnh.";
+        }
+        finally
+        {
+            btnExport.IsEnabled = true;
+            pbProgress.Visibility = Visibility.Collapsed;
+            Mouse.OverrideCursor = null;
+        }
+    }
+
+    private void SaveReplacedImage(PageItem page, string outputPath)
+    {
+        if (string.IsNullOrEmpty(page.CleanImagePath) || !File.Exists(page.CleanImagePath))
+            return;
+
+        // 1. Nạp ảnh sạch để lấy độ phân giải gốc
+        BitmapImage bitmap = new();
+        bitmap.BeginInit();
+        bitmap.UriSource = new Uri(page.CleanImagePath);
+        bitmap.CacheOption = BitmapCacheOption.OnLoad;
+        bitmap.EndInit();
+
+        double width = bitmap.PixelWidth;
+        double height = bitmap.PixelHeight;
+
+        // 2. Dựng cấu trúc Grid để render trong bộ nhớ
+        Grid grid = new()
+        {
+            Width = width,
+            Height = height
+        };
+
+        Image img = new()
+        {
+            Source = bitmap,
+            Width = width,
+            Height = height,
+            Stretch = Stretch.Fill
+        };
+        grid.Children.Add(img);
+
+        Canvas canvas = new()
+        {
+            Width = width,
+            Height = height,
+            Background = Brushes.Transparent
+        };
+        grid.Children.Add(canvas);
+
+        // 3. Vẽ đè tất cả các TextBox dịch lên Canvas đúng tọa độ
+        foreach (var item in page.OcrResults)
+        {
+            if (item.Box.Count != 4)
+                continue;
+
+            double left = item.Box.Min(p => p[0]);
+            double top = item.Box.Min(p => p[1]);
+            double right = item.Box.Max(p => p[0]);
+            double bottom = item.Box.Max(p => p[1]);
+
+            double w = right - left;
+            double h = bottom - top;
+
+            TextBox textBox = new()
+            {
+                Width = w,
+                Height = h,
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                TextWrapping = TextWrapping.Wrap,
+                TextAlignment = TextAlignment.Center,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                FontFamily = new FontFamily("Segoe UI"),
+                FontWeight = FontWeights.Bold,
+                Text = item.Text,
+                Padding = new Thickness(2),
+                Margin = new Thickness(0)
+            };
+
+            // Sử dụng font size tùy biến nếu có, ngược lại tự động tính cỡ chữ tối ưu
+            textBox.FontSize = item.FontSize > 0 ? item.FontSize : CalculateOptimalFontSize(item.Text, w, h);
+
+            // Hiệu ứng bóng mờ viền chữ trắng
+            var outlineEffect = new System.Windows.Media.Effects.DropShadowEffect
+            {
+                Color = Colors.White,
+                BlurRadius = 3,
+                ShadowDepth = 0,
+                Opacity = 1.0
+            };
+            textBox.Effect = outlineEffect;
+
+            Canvas.SetLeft(textBox, left);
+            Canvas.SetTop(textBox, top);
+            canvas.Children.Add(textBox);
+        }
+
+        // 4. Bắt buộc WPF đo đạc và sắp xếp bố cục trước khi chụp ảnh
+        Size sz = new(width, height);
+        grid.Measure(sz);
+        grid.Arrange(new Rect(sz));
+        grid.UpdateLayout();
+
+        // 5. Kết xuất bằng RenderTargetBitmap
+        RenderTargetBitmap rtb = new((int)width, (int)height, 96, 96, PixelFormats.Pbgra32);
+        rtb.Render(grid);
+
+        // 6. Mã hóa và ghi file xuống đĩa
+        PngBitmapEncoder encoder = new();
+        encoder.Frames.Add(BitmapFrame.Create(rtb));
+
+        using FileStream fs = new(outputPath, FileMode.Create, FileAccess.Write);
+        encoder.Save(fs);
     }
 
     private void StopOcrService()

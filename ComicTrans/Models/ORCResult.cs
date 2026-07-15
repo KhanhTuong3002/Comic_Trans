@@ -33,6 +33,22 @@ namespace ComicTrans.Models
         [JsonPropertyName("box")]
         public List<List<double>> Box { get; set; } = new();
 
+        private double _fontSize = 0; // 0 nghĩa là sử dụng tự động co giãn kích thước
+
+        [JsonIgnore]
+        public double FontSize
+        {
+            get => _fontSize;
+            set
+            {
+                if (_fontSize != value)
+                {
+                    _fontSize = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
         public event PropertyChangedEventHandler? PropertyChanged;
 
         protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)

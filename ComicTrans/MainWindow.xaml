@@ -31,9 +31,15 @@
                     Margin="5"
                     Content="Dịch" Click="btnTranslate_Click"/>
 
-            <Button Width="90"
+            <Button x:Name="btnReplace"
+                    Width="90"
                     Margin="5"
-                    Content="Export"/>
+                    Content="Thay thế" Click="btnReplace_Click"/>
+
+            <Button x:Name="btnExport"
+                    Width="90"
+                    Margin="5"
+                    Content="Export" Click="btnExport_Click"/>
 
             <Separator/>
 
@@ -173,8 +179,8 @@
                                 Stretch="Uniform"/>
 
                         <Canvas x:Name="overlayCanvas"
-                                Background="Transparent"
-                                IsHitTestVisible="False"/>
+                                Background="{x:Null}"
+                                IsHitTestVisible="True"/>
 
                     </Grid>
 

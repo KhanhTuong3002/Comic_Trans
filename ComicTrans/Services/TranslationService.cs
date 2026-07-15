@@ -14,7 +14,7 @@ namespace ComicTrans.Services
         private readonly HttpClient _client = new();
         private readonly string _configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
         private string? _apiKey;
-        private string _modelName = "gemini-3.5-flash";
+        private string _modelName = "gemini-flash-lite-latest";
 
         public TranslationService()
         {
@@ -30,7 +30,7 @@ namespace ComicTrans.Services
                     var defaultConfig = new 
                     { 
                         GeminiApiKey = "YOUR_GEMINI_API_KEY_HERE",
-                        ModelName = "gemini-3.5-flash"
+                        ModelName = "gemini-flash-lite-latest"
                     };
                     File.WriteAllText(_configPath, JsonSerializer.Serialize(defaultConfig, new JsonSerializerOptions { WriteIndented = true }));
                 }
@@ -164,10 +164,46 @@ namespace ComicTrans.Services
             if (translatedList == null || translatedList.Count != texts.Count)
             {
                 System.Diagnostics.Debug.WriteLine("Warning: Translation count mismatch. Using returned parts.");
-                return translatedList ?? new List<string>();
+                translatedList ??= new List<string>();
             }
 
-            return translatedList; //
+            for (int i = 0; i < translatedList.Count; i++)
+            {
+                translatedList[i] = EnsureSentenceCase(translatedList[i]);
+            }
+
+            return translatedList;
+        }
+
+        private string EnsureSentenceCase(string input)
+        {
+            if (string.IsNullOrWhiteSpace(input)) return input;
+
+            bool hasUppercase = false;
+            bool hasLowercase = false;
+            foreach (char c in input)
+            {
+                if (char.IsUpper(c)) hasUppercase = true;
+                else if (char.IsLower(c)) hasLowercase = true;
+            }
+
+            // Nếu chuỗi chỉ có chữ IN HOA (và không chứa chữ thường nào)
+            if (hasUppercase && !hasLowercase)
+            {
+                var lines = input.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+                for (int i = 0; i < lines.Length; i++)
+                {
+                    string line = lines[i].Trim();
+                    if (line.Length > 0)
+                    {
+                        // Viết hoa chữ cái đầu dòng, các chữ còn lại viết thường
+                        lines[i] = char.ToUpper(line[0]) + line.Substring(1).ToLower();
+                    }
+                }
+                return string.Join(Environment.NewLine, lines);
+            }
+
+            return input;
         }
     }
 }
