@@ -84,4 +84,4 @@ def is_close(
     horizontal = ratio > 0.15 or dx < 5
     vertical = dy < avg_h * vertical_factor
 
-    return horizontal and vertical //
+    return horizontal and vertical
