@@ -1,4 +1,4 @@
-﻿using ComicTrans.Models;
+using ComicTrans.Models;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -15,7 +15,7 @@ namespace ComicTrans.Services
     {
         private readonly HttpClient _client = new();
 
-        public async Task<List<OcrResult>> RecognizeAsync(string imagePath)
+        public async Task<List<OcrResult>> RecognizeAsync(string imagePath, string lang = "en")
         {
             using var form = new MultipartFormDataContent();
 
@@ -27,6 +27,7 @@ namespace ComicTrans.Services
                 new MediaTypeHeaderValue("image/png");
 
             form.Add(fileContent, "image", Path.GetFileName(imagePath));
+            form.Add(new StringContent(lang), "lang");
 
             var response = await _client.PostAsync(
                 "http://127.0.0.1:5000/ocr",

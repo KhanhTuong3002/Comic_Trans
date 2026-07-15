@@ -1,4 +1,4 @@
-﻿from models import OCRLine
+from models import OCRLine
 
 
 def center_x(item):
@@ -55,11 +55,20 @@ def average_width(a, b):
     return (a.width + b.width) / 2
 
 
+def overlap_x_ratio(a, b):
+    """
+    Tính tỷ lệ chồng lấp theo trục X so với chiều rộng của box nhỏ hơn.
+    """
+    overlap = max(0, min(a.xmax, b.xmax) - max(a.xmin, b.xmin))
+    min_w = min(a.width, b.width)
+    return overlap / min_w if min_w > 0 else 0
+
+
 def is_close(
     a: OCRLine,
     b: OCRLine,
-    horizontal_factor=2.5,
-    vertical_factor=1.5,
+    horizontal_factor=1.2,
+    vertical_factor=1.4,
 ):
     """
     Hai OCRLine có đủ gần để xem là cùng một bubble hay không.
@@ -70,7 +79,9 @@ def is_close(
 
     avg_h = average_height(a, b)
 
-    horizontal = overlap_x(a, b) or dx < avg_h * horizontal_factor
+    ratio = overlap_x_ratio(a, b)
+    # Yêu cầu chồng lấp trục X ít nhất 15%, hoặc khoảng cách ngang dx cực kỳ nhỏ (< 5px)
+    horizontal = ratio > 0.15 or dx < 5
     vertical = dy < avg_h * vertical_factor
 
     return horizontal and vertical

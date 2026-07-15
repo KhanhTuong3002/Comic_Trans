@@ -3,3 +3,9 @@ bin/
 obj/
 *.user
 *.suo
+
+# Python
+**/venv/
+**/env/
+**/__pycache__/
+*.pyc

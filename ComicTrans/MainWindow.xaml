@@ -1,4 +1,4 @@
-﻿<Window x:Class="ComicTrans.MainWindow"
+<Window x:Class="ComicTrans.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Comic Translator"
@@ -10,25 +10,56 @@
         <!-- Thanh công cụ -->
         <ToolBar DockPanel.Dock="Top">
 
+            <Button x:Name="btnNew"
+                    Width="90"
+                    Margin="5"
+                    Content="New" Click="btnNew_Click"/>
+
             <Button x:Name="btnOpen"
                     Width="90"
                     Margin="5"
-                    Content="Open" Click="btnOpen_Click"/>
+                    Content="Tải ảnh " Click="btnOpen_Click"/>
 
+          
             <Button x:Name="btnOCR" 
                     Width="90"
                     Margin="5"
-                    Content="OCR" Click="Button_Click"/>
+                    Content="Quét văn bản" Click="Button_Click"/>
 
-            <Button Width="90"
+            <Button x:Name="btnTranslate"
+                    Width="90"
                     Margin="5"
-                    Content="Translate"/>
+                    Content="Dịch" Click="btnTranslate_Click"/>
 
             <Button Width="90"
                     Margin="5"
                     Content="Export"/>
 
+            <Separator/>
+
+            <Label Content="Nguồn:" VerticalAlignment="Center" Margin="5,0,0,0"/>
+            <ComboBox x:Name="cbSourceLang" Width="120" Margin="5" SelectedIndex="0">
+                <ComboBoxItem Content="Tiếng Anh (en)" Tag="en"/>
+                <ComboBoxItem Content="Tiếng Nhật (japan)" Tag="japan"/>
+                <ComboBoxItem Content="Tiếng Trung (ch)" Tag="ch"/>
+                <ComboBoxItem Content="Tiếng Hàn (korean)" Tag="korean"/>
+                <ComboBoxItem Content="Tiếng Việt (vi)" Tag="vi"/>
+            </ComboBox>
+
+            <Separator/>
+
+
         </ToolBar>
+
+        <!-- StatusBar ở dưới cùng -->
+        <StatusBar DockPanel.Dock="Bottom" Height="30">
+            <StatusBarItem Margin="5,0,0,0">
+                <TextBlock x:Name="txtStatus" Text="Ready" VerticalAlignment="Center"/>
+            </StatusBarItem>
+            <StatusBarItem HorizontalAlignment="Right" Margin="0,0,5,0">
+                <ProgressBar x:Name="pbProgress" Width="150" Height="15" Minimum="0" Maximum="100" Visibility="Collapsed" VerticalAlignment="Center"/>
+            </StatusBarItem>
+        </StatusBar>
 
         <Grid>
 
@@ -47,14 +78,85 @@
                     BorderBrush="Gray"
                     BorderThickness="1">
 
-                <StackPanel Margin="10">
+                <DockPanel Margin="10">
 
-                    <TextBlock
-                        FontWeight="Bold"
-                        FontSize="18"
-                        Text="Pages"/>
+                    <TextBlock DockPanel.Dock="Top"
+                               FontWeight="Bold"
+                               FontSize="18"
+                               Margin="0,0,0,10"
+                               Text="Pages"/>
 
-                </StackPanel>
+                    <ListBox x:Name="lbPages"
+                             SelectionChanged="lbPages_SelectionChanged"
+                             AllowDrop="True"
+                             Drop="lbPages_Drop"
+                             DragOver="lbPages_DragOver"
+                             PreviewMouseLeftButtonDown="lbPages_PreviewMouseLeftButtonDown"
+                             MouseMove="lbPages_MouseMove"
+                             HorizontalContentAlignment="Stretch"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="3" Background="Transparent">
+                                    <Grid.ContextMenu>
+                                        <ContextMenu>
+                                            <MenuItem Header="Quét lại trang này (Force OCR)" Click="MenuForceOcr_Click"/>
+                                            <MenuItem Header="Dịch lại trang này (Force Translate)" Click="MenuForceTranslate_Click"/>
+                                            <Separator/>
+                                            <MenuItem Header="Xóa kết quả (Clear)" Click="MenuClearResults_Click"/>
+                                            <Separator/>
+                                            <MenuItem Header="Xóa trang này (Delete)" Click="MenuDeletePage_Click"/>
+                                        </ContextMenu>
+                                    </Grid.ContextMenu>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="50"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <Border BorderThickness="1" BorderBrush="#CCCCCC" CornerRadius="2">
+                                        <Image Source="{Binding Thumbnail}" 
+                                               Width="44" 
+                                               Height="60" 
+                                               Stretch="UniformToFill"
+                                               RenderOptions.BitmapScalingMode="LowQuality"/>
+                                    </Border>
+
+                                    <StackPanel Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding PageNumber, StringFormat='Trang {0}'}" 
+                                                   FontWeight="Bold" 
+                                                   Foreground="#009688"
+                                                   FontSize="11"
+                                                   Margin="0,0,0,2"/>
+                                        <TextBlock Text="{Binding PageName}" 
+                                                   FontWeight="SemiBold" 
+                                                   FontSize="12"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="Padding" Value="2"/>
+                                <Setter Property="Margin" Value="1"/>
+                                <Setter Property="BorderThickness" Value="1"/>
+                                <Setter Property="BorderBrush" Value="Transparent"/>
+                                <Setter Property="Background" Value="Transparent"/>
+                                <EventSetter Event="PreviewMouseRightButtonDown" Handler="OnPreviewMouseRightButtonDown" />
+                                <Style.Triggers>
+                                    <Trigger Property="IsSelected" Value="True">
+                                        <Setter Property="Background" Value="#E0F2F1"/>
+                                        <Setter Property="BorderBrush" Value="#009688"/>
+                                    </Trigger>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter Property="Background" Value="#F5F5F5"/>
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                    </ListBox>
+
+                </DockPanel>
 
             </Border>
 
@@ -88,21 +190,36 @@
                 <DockPanel>
 
                     <TextBlock DockPanel.Dock="Top"
-                   Margin="10"
-                   FontWeight="Bold"
-                   FontSize="18"
-                   Text="OCR Result"/>
+                    Margin="10"
+                    FontWeight="Bold"
+                    FontSize="18"
+                    Text="Result"/>
 
                     <ListView x:Name="lvOcrResult"
-                  SelectionChanged="lvOcrResult_SelectionChanged">
+                  SelectionChanged="lvOcrResult_SelectionChanged"
+                  HorizontalContentAlignment="Stretch">
 
                         <ListView.View>
 
                             <GridView>
 
-                                <GridViewColumn Header="Text"
-                                    Width="300"
-                                    DisplayMemberBinding="{Binding Text}"/>
+                                <GridViewColumn Header="Text" Width="280">
+                                    <GridViewColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBox Text="{Binding Text, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                     TextWrapping="Wrap"
+                                                     AcceptsReturn="True"
+                                                     GotFocus="TextBox_GotFocus"
+                                                     BorderThickness="1"
+                                                     BorderBrush="#E0E0E0"
+                                                     Padding="4"
+                                                     Margin="1"
+                                                     Width="260"
+                                                     MinHeight="30"
+                                                     VerticalScrollBarVisibility="Auto"/>
+                                        </DataTemplate>
+                                    </GridViewColumn.CellTemplate>
+                                </GridViewColumn>
 
                             </GridView>
 

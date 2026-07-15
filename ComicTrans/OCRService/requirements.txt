@@ -1,0 +1,8 @@
+﻿
+numpy==1.26.4 # key
+Python 3.11.15 # key
+paddleocr==3.2.0 # key
+paddlepaddle==3.1.1 # key
+paddlex==3.2.1 # key
+
+ooooooo

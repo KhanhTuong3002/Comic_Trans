@@ -1,4 +1,4 @@
-﻿from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify
 from paddleocr import PaddleOCR
 
 import tempfile
@@ -14,56 +14,71 @@ from response_builder import build_response
 
 app = Flask(__name__)
 
-ocr = PaddleOCR(
-    lang="en",
-    use_doc_orientation_classify=False,
-    use_doc_unwarping=False,
-    use_textline_orientation=False
-)
+ocr_instances = {}
+
+def get_ocr_instance(lang):
+    if lang not in ocr_instances:
+        print(f"Initializing PaddleOCR for language: {lang}")
+        ocr_instances[lang] = PaddleOCR(
+            lang=lang,
+            use_doc_orientation_classify=False,
+            use_doc_unwarping=False,
+            use_textline_orientation=False
+        )
+    return ocr_instances[lang]
 
 
 @app.route("/ocr", methods=["POST"])
 def recognize():
     print(">>> RECOGNIZE CALLED <<<")
+    try:
+        if "image" not in request.files:
+            return jsonify({
+                "success": False,
+                "message": "No image uploaded."
+            }), 400
 
-    if "image" not in request.files:
-        return jsonify({
-            "success": False,
-            "message": "No image uploaded."
-        }), 400
+        file = request.files["image"]
+        lang = request.form.get("lang", "en")
+        print(f"Requested language: {lang}")
 
-    file = request.files["image"]
+        tmp_name = None
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
+                file.save(tmp.name)
+                tmp_name = tmp.name
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
+            # Ở ngoài khối with, luồng ghi file tạm đã đóng hoàn toàn trên Windows
+            ocr = get_ocr_instance(lang)
+            result = ocr.predict(tmp_name)
+        finally:
+            if tmp_name and os.path.exists(tmp_name):
+                os.remove(tmp_name)
 
-        file.save(tmp.name)
+        if not result or result[0] is None:
+            return jsonify([])
 
-        result = ocr.predict(tmp.name)
+        page = result[0]
 
-    os.remove(tmp.name)
+        # 1. OCR -> OCRLine
+        lines = convert_page(page)
+        
+        # 2. Gom Bubble
+        bubbles = group_bubbles(lines)
 
-    page = result[0]
+        # 3. Sắp xếp thứ tự đọc
+        bubbles = sort_bubbles(bubbles)
+        print("========== RESULT ==========")
+        for b in bubbles:
+            print(f"[{b.id}] {b.text}")
 
-    # 1. OCR -> OCRLine
-    lines = convert_page(page)
-    print(f"OCR Lines: {len(lines)}")
-
-    # 2. Gom Bubble
-    bubbles = group_bubbles(lines)
-    print(f"Bubbles: {len(bubbles)}")
-
-    # 3. Sắp xếp thứ tự đọc
-    bubbles = sort_bubbles(bubbles)
-    print("========== RESULT ==========")
-    for b in bubbles:
-        print(f"[{b.id}] {b.text}")
-
-    response = build_response(bubbles)
-
-    # 4. Bubble -> JSON  
-    response = build_response(bubbles)
-    print(type(response[0]["box"][0][0]))
-    return jsonify(response)
+        response = build_response(bubbles)
+        if response:
+            print(type(response[0]["box"][0][0]))
+        return jsonify(response)
+    except Exception as e:
+        print(f"Error in OCR: {e}")
+        return jsonify([])
 
 
 
