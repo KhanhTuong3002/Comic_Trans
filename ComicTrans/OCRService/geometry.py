@@ -11,7 +11,7 @@ def center_y(item):
 
 def horizontal_gap(a, b):
     """
-    Khoảng cách ngang giữa 2 box.
+    Khoảng cách ngang giữa 2 boxs.
     Nếu chồng lên nhau thì = 0
     """
     return max(
@@ -84,4 +84,4 @@ def is_close(
     horizontal = ratio > 0.15 or dx < 5
     vertical = dy < avg_h * vertical_factor
 
-    return horizontal and vertical
+    return horizontal and vertical //
