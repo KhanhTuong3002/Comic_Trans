@@ -222,7 +222,17 @@
                                                      Margin="1"
                                                      Width="260"
                                                      MinHeight="30"
-                                                     VerticalScrollBarVisibility="Auto"/>
+                                                     VerticalScrollBarVisibility="Auto">
+                                                <TextBox.ContextMenu>
+                                                    <ContextMenu>
+                                                        <MenuItem Command="Copy" Header="Sao chép"/>
+                                                        <MenuItem Command="Cut" Header="Cắt"/>
+                                                        <MenuItem Command="Paste" Header="Dán"/>
+                                                        <Separator/>
+                                                        <MenuItem Header="Xóa kết quả OCR này" Click="MenuDeleteOcr_Click"/>
+                                                    </ContextMenu>
+                                                </TextBox.ContextMenu>
+                                            </TextBox>
                                         </DataTemplate>
                                     </GridViewColumn.CellTemplate>
                                 </GridViewColumn>

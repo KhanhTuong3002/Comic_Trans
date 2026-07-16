@@ -230,7 +230,32 @@ public partial class MainWindow : Window
                 Height = bottom - top,
                 Stroke = Brushes.Red,
                 StrokeThickness = 2,
-                Fill = Brushes.Transparent
+                Fill = Brushes.Transparent,
+                Tag = item
+            };
+
+            ContextMenu contextMenu = new();
+            MenuItem deleteItem = new() { Header = "Xóa OCR này" };
+            deleteItem.Click += DeleteOcrResult_Click;
+            contextMenu.Items.Add(deleteItem);
+            rect.ContextMenu = contextMenu;
+
+            rect.MouseLeftButtonDown += (s, e) =>
+            {
+                if (s is Rectangle r && r.Tag is OcrResult ocrResult)
+                {
+                    lvOcrResult.SelectedItem = ocrResult;
+                    e.Handled = true;
+                }
+            };
+
+            rect.MouseRightButtonDown += (s, e) =>
+            {
+                if (s is Rectangle r && r.Tag is OcrResult ocrResult)
+                {
+                    lvOcrResult.SelectedItem = ocrResult;
+                    e.Handled = true;
+                }
             };
 
             Canvas.SetLeft(rect, left);
@@ -243,19 +268,22 @@ public partial class MainWindow : Window
 
     private void lvOcrResult_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        int index = lvOcrResult.SelectedIndex;
-
-        if (index < 0 || index >= _rectangles.Count)
-            return;
-
-        foreach (var rect in _rectangles)
+        if (lvOcrResult.SelectedItem is OcrResult selectedItem)
         {
-            rect.Stroke = Brushes.Red;
-            rect.StrokeThickness = 2;
+            foreach (var rect in _rectangles)
+            {
+                if (rect.Tag == selectedItem)
+                {
+                    rect.Stroke = Brushes.LimeGreen;
+                    rect.StrokeThickness = 4;
+                }
+                else
+                {
+                    rect.Stroke = Brushes.Red;
+                    rect.StrokeThickness = 2;
+                }
+            }
         }
-
-        _rectangles[index].Stroke = Brushes.LimeGreen;
-        _rectangles[index].StrokeThickness = 4;
     }
 
     private void TextBox_GotFocus(object sender, RoutedEventArgs e)
@@ -454,8 +482,31 @@ public partial class MainWindow : Window
                 FontWeight = FontWeights.Bold,
                 AcceptsReturn = true,
                 Padding = new Thickness(2),
-                Margin = new Thickness(0)
+                Margin = new Thickness(0),
+                Tag = item
             };
+
+            textBox.GotFocus += (s, e) =>
+            {
+                if (s is TextBox tb && tb.Tag is OcrResult ocrResult)
+                {
+                    lvOcrResult.SelectedItem = ocrResult;
+                }
+            };
+
+            ContextMenu contextMenu = new();
+            MenuItem copyItem = new() { Command = ApplicationCommands.Copy, Header = "Sao chép" };
+            MenuItem cutItem = new() { Command = ApplicationCommands.Cut, Header = "Cắt" };
+            MenuItem pasteItem = new() { Command = ApplicationCommands.Paste, Header = "Dán" };
+            MenuItem deleteItem = new() { Header = "Xóa OCR này" };
+            deleteItem.Click += DeleteOcrResult_Click;
+
+            contextMenu.Items.Add(copyItem);
+            contextMenu.Items.Add(cutItem);
+            contextMenu.Items.Add(pasteItem);
+            contextMenu.Items.Add(new Separator());
+            contextMenu.Items.Add(deleteItem);
+            textBox.ContextMenu = contextMenu;
 
             // Tính toán cỡ chữ tối ưu lúc ban đầu hoặc lấy cỡ chữ tùy biến đã lưu
             if (item.FontSize > 0)
@@ -825,6 +876,66 @@ public partial class MainWindow : Window
             else
             {
                 txtStatus.Text = "Danh sách trang trống.";
+            }
+        }
+    }
+
+    private void MenuDeleteOcr_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is MenuItem menuItem)
+        {
+            if (menuItem.DataContext is OcrResult ocrResult)
+            {
+                DeleteOcr(ocrResult);
+            }
+            else if (menuItem.Parent is ContextMenu contextMenu && contextMenu.PlacementTarget is FrameworkElement element && element.DataContext is OcrResult ocrRes)
+            {
+                DeleteOcr(ocrRes);
+            }
+        }
+    }
+
+    private void DeleteOcrResult_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is MenuItem menuItem && menuItem.Parent is ContextMenu contextMenu && contextMenu.PlacementTarget is FrameworkElement element)
+        {
+            if (element.Tag is OcrResult ocrResult)
+            {
+                DeleteOcr(ocrResult);
+            }
+        }
+    }
+
+    private void DeleteOcr(OcrResult ocrResult)
+    {
+        if (lbPages.SelectedItem is PageItem selectedPage)
+        {
+            var result = MessageBox.Show(
+                "Bạn có chắc chắn muốn xóa kết quả OCR này không?",
+                "Xác nhận xóa",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+
+            if (result == MessageBoxResult.Yes)
+            {
+                selectedPage.OcrResults.Remove(ocrResult);
+                _ocrResults = selectedPage.OcrResults;
+
+                // Cập nhật UI danh sách kết quả
+                lvOcrResult.ItemsSource = null;
+                lvOcrResult.ItemsSource = _ocrResults;
+
+                // Vẽ lại canvas
+                if (selectedPage.IsReplaced)
+                {
+                    DrawTranslatedText();
+                    txtStatus.Text = "Đã xóa kết quả OCR. Bấm 'Thay thế' lại để cập nhật ảnh nền sạch chữ nếu cần.";
+                }
+                else
+                {
+                    DrawOcrBoxes();
+                    txtStatus.Text = "Đã xóa kết quả OCR.";
+                }
             }
         }
     }
