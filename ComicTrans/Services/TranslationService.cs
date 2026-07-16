@@ -70,12 +70,12 @@ namespace ComicTrans.Services
                 throw new InvalidOperationException($"Vui lòng cấu hình Gemini API Key hợp lệ trong file config.json tại:\n{_configPath}");
             }
 
-            // Prompt optimized for Manga translation with newline preservation
+            // Prompt optimized for Manga translation without line breaks
             var systemPrompt = $"You are a professional manga translator translating dialogue from English to {targetLanguage}.\n" +
                                "Below is the sequential list of dialogues/texts extracted from a manga page.\n" +
                                "Please translate each of them naturally, keeping the tone colloquial, expressive, and matching the context of manga dialogue.\n" +
                                "Use appropriate Vietnamese pronouns (cậu, tớ, tôi, anh, em, nó, hắn, ...) based on the comic's context.\n" +
-                               "CRITICAL: You MUST preserve the line breaks (newlines) in the translated text. For each item, insert newline characters in the Vietnamese translation at appropriate positions so that the line-by-line structure and layout matches the original English text as closely as possible.\n" +
+                               "CRITICAL: Do NOT include any line breaks (newlines) in the translated text. The translation for each item must be a single, continuous line without any line breaks, so that the layout engine can wrap it dynamically.\n" +
                                "You MUST output the results ONLY as a JSON array of strings, where each string is the translated text of the corresponding index.";
 
             var requestBody = new
@@ -169,7 +169,15 @@ namespace ComicTrans.Services
 
             for (int i = 0; i < translatedList.Count; i++)
             {
-                translatedList[i] = EnsureSentenceCase(translatedList[i]);
+                string text = EnsureSentenceCase(translatedList[i] ?? "");
+                // Thay thế toàn bộ ký tự xuống dòng bằng khoảng trắng
+                string cleanText = text.Replace("\r\n", " ").Replace("\r", " ").Replace("\n", " ");
+                // Loại bỏ khoảng trắng thừa
+                while (cleanText.Contains("  "))
+                {
+                    cleanText = cleanText.Replace("  ", " ");
+                }
+                translatedList[i] = cleanText.Trim();
             }
 
             return translatedList;
