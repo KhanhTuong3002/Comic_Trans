@@ -26,6 +26,11 @@
                     Margin="5"
                     Content="Quét văn bản" Click="Button_Click"/>
 
+            <ToggleButton x:Name="btnManualOcr"
+                          Width="110"
+                          Margin="5"
+                          Content="Quét thủ công"/>
+
             <Button x:Name="btnTranslate"
                     Width="90"
                     Margin="5"
@@ -179,8 +184,11 @@
                                 Stretch="Uniform"/>
 
                         <Canvas x:Name="overlayCanvas"
-                                Background="{x:Null}"
-                                IsHitTestVisible="True"/>
+                                Background="Transparent"
+                                IsHitTestVisible="True"
+                                MouseRightButtonDown="overlayCanvas_MouseRightButtonDown"
+                                MouseRightButtonUp="overlayCanvas_MouseRightButtonUp"
+                                MouseMove="overlayCanvas_MouseMove"/>
 
                     </Grid>
 

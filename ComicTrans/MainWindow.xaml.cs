@@ -31,6 +31,11 @@ public partial class MainWindow : Window
     private PageItem? _draggedItem;
     private System.Diagnostics.Process? _ocrProcess;
 
+    // Các biến trạng thái hỗ trợ quét OCR thủ công
+    private bool _isDrawingSelection;
+    private Point _manualOcrStartPoint;
+    private Rectangle? _selectionRect;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -1221,6 +1226,178 @@ public partial class MainWindow : Window
 
         using FileStream fs = new(outputPath, FileMode.Create, FileAccess.Write);
         encoder.Save(fs);
+    }
+
+    private void overlayCanvas_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (btnManualOcr.IsChecked != true)
+            return;
+
+        if (lbPages.SelectedItem == null)
+            return;
+
+        _isDrawingSelection = true;
+        _manualOcrStartPoint = e.GetPosition(overlayCanvas);
+        overlayCanvas.CaptureMouse();
+
+        _selectionRect = new Rectangle
+        {
+            Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#8A2BE2")), // Tím neon viền đứt
+            StrokeThickness = 1.5,
+            StrokeDashArray = new DoubleCollection { 4, 4 },
+            Fill = new SolidColorBrush(Color.FromArgb(40, 138, 43, 226)),
+            IsHitTestVisible = false
+        };
+
+        Canvas.SetLeft(_selectionRect, _manualOcrStartPoint.X);
+        Canvas.SetTop(_selectionRect, _manualOcrStartPoint.Y);
+        _selectionRect.Width = 0;
+        _selectionRect.Height = 0;
+
+        overlayCanvas.Children.Add(_selectionRect);
+        e.Handled = true;
+    }
+
+    private void overlayCanvas_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (!_isDrawingSelection || _selectionRect == null)
+            return;
+
+        Point currentPoint = e.GetPosition(overlayCanvas);
+
+        double left = Math.Min(_manualOcrStartPoint.X, currentPoint.X);
+        double top = Math.Min(_manualOcrStartPoint.Y, currentPoint.Y);
+        double width = Math.Abs(_manualOcrStartPoint.X - currentPoint.X);
+        double height = Math.Abs(_manualOcrStartPoint.Y - currentPoint.Y);
+
+        // Giới hạn trong phạm vi canvas
+        left = Math.Max(0, Math.Min(left, overlayCanvas.Width));
+        top = Math.Max(0, Math.Min(top, overlayCanvas.Height));
+        width = Math.Min(width, overlayCanvas.Width - left);
+        height = Math.Min(height, overlayCanvas.Height - top);
+
+        Canvas.SetLeft(_selectionRect, left);
+        Canvas.SetTop(_selectionRect, top);
+        _selectionRect.Width = width;
+        _selectionRect.Height = height;
+
+        e.Handled = true;
+    }
+
+    private async void overlayCanvas_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (!_isDrawingSelection)
+            return;
+
+        _isDrawingSelection = false;
+        overlayCanvas.ReleaseMouseCapture();
+
+        if (_selectionRect == null)
+            return;
+
+        double left = Canvas.GetLeft(_selectionRect);
+        double top = Canvas.GetTop(_selectionRect);
+        double width = _selectionRect.Width;
+        double height = _selectionRect.Height;
+
+        overlayCanvas.Children.Remove(_selectionRect);
+        _selectionRect = null;
+        e.Handled = true;
+
+        if (width < 5 || height < 5)
+        {
+            return; // Vùng chọn quá nhỏ
+        }
+
+        if (lbPages.SelectedItem is not PageItem selectedPage)
+            return;
+
+        try
+        {
+            txtStatus.Text = "Đang quét vùng chọn...";
+            pbProgress.Visibility = Visibility.Visible;
+            pbProgress.IsIndeterminate = true;
+            btnManualOcr.IsEnabled = false;
+
+            // 1. Cắt ảnh (Crop) trên C# client
+            byte[] croppedBytes = CropImage(_currentImagePath ?? selectedPage.ImagePath, (int)left, (int)top, (int)width, (int)height);
+
+            // 2. Gửi nhận diện OCR lên server
+            string lang = GetSelectedSourceLanguage();
+            var results = await _ocrService.RecognizeBytesAsync(croppedBytes, lang);
+
+            if (results == null || results.Count == 0)
+            {
+                txtStatus.Text = "Không tìm thấy chữ trong vùng chọn.";
+                return;
+            }
+
+            // 3. Tịnh tiến tọa độ kết quả để khớp trên ảnh gốc toàn trang
+            foreach (var item in results)
+            {
+                foreach (var pt in item.Box)
+                {
+                    pt[0] += left;
+                    pt[1] += top;
+                }
+            }
+
+            // 4. Cộng dồn kết quả OCR vào trang
+            if (selectedPage.OcrResults == null)
+            {
+                selectedPage.OcrResults = new List<OcrResult>();
+            }
+
+            selectedPage.OcrResults.AddRange(results);
+            _ocrResults = selectedPage.OcrResults;
+
+            // 5. Cập nhật giao diện hiển thị hộp bao
+            lvOcrResult.ItemsSource = null;
+            lvOcrResult.ItemsSource = _ocrResults;
+
+            if (selectedPage.IsReplaced)
+            {
+                DrawTranslatedText();
+            }
+            else
+            {
+                DrawOcrBoxes();
+            }
+
+            txtStatus.Text = $"Đã quét và thêm {results.Count} vùng văn bản mới.";
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Lỗi quét OCR thủ công: {ex.Message}");
+            txtStatus.Text = "Lỗi quét thủ công.";
+        }
+        finally
+        {
+            pbProgress.Visibility = Visibility.Collapsed;
+            pbProgress.IsIndeterminate = false;
+            btnManualOcr.IsEnabled = true;
+        }
+    }
+
+    private byte[] CropImage(string imagePath, int x, int y, int width, int height)
+    {
+        BitmapDecoder decoder = BitmapDecoder.Create(new Uri(imagePath), BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
+        BitmapFrame frame = decoder.Frames[0];
+
+        // Ràng buộc tọa độ trong lòng ảnh
+        x = Math.Clamp(x, 0, frame.PixelWidth);
+        y = Math.Clamp(y, 0, frame.PixelHeight);
+        width = Math.Clamp(width, 1, frame.PixelWidth - x);
+        height = Math.Clamp(height, 1, frame.PixelHeight - y);
+
+        CroppedBitmap cropped = new(frame, new Int32Rect(x, y, width, height));
+
+        PngBitmapEncoder encoder = new();
+        encoder.Frames.Add(BitmapFrame.Create(cropped));
+        
+        using MemoryStream ms = new();
+        encoder.Save(ms);
+        return ms.ToArray();
     }
 
     private void StopOcrService()

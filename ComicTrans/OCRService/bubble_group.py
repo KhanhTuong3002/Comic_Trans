@@ -1,8 +1,11 @@
-﻿from collections import defaultdict
+from collections import defaultdict
 
 from models import OCRLine, Bubble
 from geometry import is_close
 from text_merge import merge_lines
+
+
+import statistics
 
 
 def group_bubbles(lines: list[OCRLine]) -> list[Bubble]:
@@ -12,6 +15,10 @@ def group_bubbles(lines: list[OCRLine]) -> list[Bubble]:
 
     if not lines:
         return []
+
+    # Tính toán chiều cao dòng trung vị làm tham chiếu động
+    line_heights = [line.height for line in lines]
+    median_line_height = statistics.median(line_heights) if line_heights else None
 
     n = len(lines)
     parent = list(range(n))
@@ -38,7 +45,7 @@ def group_bubbles(lines: list[OCRLine]) -> list[Bubble]:
 
     for i in range(n):
         for j in range(i + 1, n):
-            if is_close(lines[i], lines[j]):
+            if is_close(lines[i], lines[j], median_line_height=median_line_height):
                 union(i, j)
 
     # ==========================

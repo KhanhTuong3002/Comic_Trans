@@ -40,6 +40,29 @@ namespace ComicTrans.Services
             return JsonSerializer.Deserialize<List<OcrResult>>(json)!;
         }
 
+        public async Task<List<OcrResult>> RecognizeBytesAsync(byte[] imageBytes, string lang = "en")
+        {
+            using var form = new MultipartFormDataContent();
+
+            var fileContent = new ByteArrayContent(imageBytes);
+
+            fileContent.Headers.ContentType =
+                new MediaTypeHeaderValue("image/png");
+
+            form.Add(fileContent, "image", "cropped.png");
+            form.Add(new StringContent(lang), "lang");
+
+            var response = await _client.PostAsync(
+                "http://127.0.0.1:5000/ocr",
+                form);
+
+            response.EnsureSuccessStatusCode();
+
+            var json = await response.Content.ReadAsStringAsync();
+
+            return JsonSerializer.Deserialize<List<OcrResult>>(json)!;
+        }
+
         public async Task<byte[]> InpaintAsync(string imagePath, List<List<List<double>>> boxes)
         {
             using var form = new MultipartFormDataContent();

@@ -64,24 +64,49 @@ def overlap_x_ratio(a, b):
     return overlap / min_w if min_w > 0 else 0
 
 
+def overlap_y_ratio(a, b):
+    """
+    Tính tỷ lệ chồng lấp theo trục Y so với chiều cao của box nhỏ hơn.
+    """
+    overlap = max(0, min(a.ymax, b.ymax) - max(a.ymin, b.ymin))
+    min_h = min(a.height, b.height)
+    return overlap / min_h if min_h > 0 else 0
+
+
 def is_close(
     a: OCRLine,
     b: OCRLine,
     horizontal_factor=1.2,
     vertical_factor=1.4,
+    median_line_height=None
 ):
     """
     Hai OCRLine có đủ gần để xem là cùng một bubble hay không.
+    Hỗ trợ chữ nằm ngang và chữ xếp dọc (Manga Nhật).
     """
 
     dx = horizontal_gap(a, b)
     dy = vertical_gap(a, b)
 
-    avg_h = average_height(a, b)
+    # Nhận diện hướng của dòng chữ dựa trên tỉ lệ chiều rộng/cao
+    a_is_vertical = a.height > a.width * 1.2
+    b_is_vertical = b.height > b.width * 1.2
 
-    ratio = overlap_x_ratio(a, b)
-    # Yêu cầu chồng lấp trục X ít nhất 15%, hoặc khoảng cách ngang dx cực kỳ nhỏ (< 5px)
-    horizontal = ratio > 0.15 or dx < 5
-    vertical = dy < avg_h * vertical_factor
+    # Sử dụng chiều cao/rộng trung vị hoặc trung bình tham chiếu
+    ref_h = median_line_height if median_line_height else (a.height + b.height) / 2
+    avg_w = (a.width + b.width) / 2
 
-    return horizontal and vertical
+    if a_is_vertical and b_is_vertical:
+        # CHỮ DỌC: Các cột xếp song song theo chiều ngang
+        # Trực giao: Thẳng hàng dọc (chồng lấp Y > 15%) hoặc khoảng cách dọc cực kì nhỏ
+        vertical = overlap_y_ratio(a, b) > 0.15 or dy < 5
+        # Khoảng cách ngang giữa 2 cột dọc nhỏ hơn chiều rộng cột * factor
+        horizontal = dx < avg_w * horizontal_factor
+        return horizontal and vertical
+    else:
+        # CHỮ NGANG: Các dòng xếp chồng lên nhau theo chiều dọc
+        # Trực giao: Thẳng hàng ngang (chồng lấp X > 15%) hoặc khoảng cách ngang cực kì nhỏ
+        horizontal = overlap_x_ratio(a, b) > 0.15 or dx < 5
+        # Khoảng cách dọc giữa các dòng ngang nhỏ hơn chiều cao dòng * factor
+        vertical = dy < ref_h * vertical_factor
+        return horizontal and vertical
