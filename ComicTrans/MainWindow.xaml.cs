@@ -36,6 +36,10 @@ public partial class MainWindow : Window
     private Point _manualOcrStartPoint;
     private Rectangle? _selectionRect;
 
+    // Các biến hỗ trợ kéo thả sắp xếp kết quả OCR
+    private Point _ocrDragStartPoint;
+    private OcrResult? _ocrDraggedItem;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -1398,6 +1402,108 @@ public partial class MainWindow : Window
         using MemoryStream ms = new();
         encoder.Save(ms);
         return ms.ToArray();
+    }
+
+    private void lvOcrResult_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        // Tránh xung đột với TextBox đang soạn thảo chữ
+        if (e.OriginalSource is DependencyObject depObj)
+        {
+            while (depObj != null && depObj is not ListView)
+            {
+                if (depObj is TextBox)
+                {
+                    return; // Nhấp vào TextBox -> Cho phép gõ chữ/chọn text, không kích hoạt kéo thả
+                }
+                depObj = VisualTreeHelper.GetParent(depObj);
+            }
+        }
+
+        _ocrDragStartPoint = e.GetPosition(null);
+        _ocrDraggedItem = GetListViewItemAtPoint<OcrResult>(lvOcrResult, e.GetPosition(lvOcrResult));
+    }
+
+    private void lvOcrResult_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (e.LeftButton == MouseButtonState.Pressed && _ocrDraggedItem != null)
+        {
+            Point mousePos = e.GetPosition(null);
+            Vector diff = _ocrDragStartPoint - mousePos;
+
+            if (Math.Abs(diff.X) > SystemParameters.MinimumHorizontalDragDistance ||
+                Math.Abs(diff.Y) > SystemParameters.MinimumVerticalDragDistance)
+            {
+                DragDrop.DoDragDrop(lvOcrResult, _ocrDraggedItem, DragDropEffects.Move);
+            }
+        }
+    }
+
+    private void lvOcrResult_DragOver(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetDataPresent(typeof(OcrResult)))
+        {
+            e.Effects = DragDropEffects.Move;
+        }
+        else
+        {
+            e.Effects = DragDropEffects.None;
+        }
+        e.Handled = true;
+    }
+
+    private void lvOcrResult_Drop(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetDataPresent(typeof(OcrResult)))
+        {
+            OcrResult? droppedItem = e.Data.GetData(typeof(OcrResult)) as OcrResult;
+            OcrResult? targetItem = GetListViewItemAtPoint<OcrResult>(lvOcrResult, e.GetPosition(lvOcrResult));
+
+            if (droppedItem != null && targetItem != null && droppedItem != targetItem)
+            {
+                if (lbPages.SelectedItem is PageItem selectedPage)
+                {
+                    int oldIndex = selectedPage.OcrResults.IndexOf(droppedItem);
+                    int newIndex = selectedPage.OcrResults.IndexOf(targetItem);
+
+                    if (oldIndex >= 0 && newIndex >= 0)
+                    {
+                        selectedPage.OcrResults.RemoveAt(oldIndex);
+                        selectedPage.OcrResults.Insert(newIndex, droppedItem);
+
+                        _ocrResults = selectedPage.OcrResults;
+
+                        // Cập nhật nguồn dữ liệu trên UI
+                        lvOcrResult.ItemsSource = null;
+                        lvOcrResult.ItemsSource = _ocrResults;
+
+                        // Vẽ lại Canvas để khớp số thứ tự hoặc hiển thị text dịch tương ứng
+                        if (selectedPage.IsReplaced)
+                        {
+                            DrawTranslatedText();
+                        }
+                        else
+                        {
+                            DrawOcrBoxes();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private T? GetListViewItemAtPoint<T>(ListView listView, Point point) where T : class
+    {
+        HitTestResult hitTestResult = VisualTreeHelper.HitTest(listView, point);
+        DependencyObject? obj = hitTestResult?.VisualHit;
+        while (obj != null && obj != listView)
+        {
+            if (obj is ListViewItem listViewItem)
+            {
+                return listViewItem.DataContext as T;
+            }
+            obj = VisualTreeHelper.GetParent(obj);
+        }
+        return null;
     }
 
     private void StopOcrService()

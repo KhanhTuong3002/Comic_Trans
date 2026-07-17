@@ -210,8 +210,13 @@
                     Text="Result"/>
 
                     <ListView x:Name="lvOcrResult"
-                  SelectionChanged="lvOcrResult_SelectionChanged"
-                  HorizontalContentAlignment="Stretch">
+                              SelectionChanged="lvOcrResult_SelectionChanged"
+                              HorizontalContentAlignment="Stretch"
+                              AllowDrop="True"
+                              PreviewMouseLeftButtonDown="lvOcrResult_PreviewMouseLeftButtonDown"
+                              MouseMove="lvOcrResult_MouseMove"
+                              DragOver="lvOcrResult_DragOver"
+                              Drop="lvOcrResult_Drop">
 
                         <ListView.View>
 
