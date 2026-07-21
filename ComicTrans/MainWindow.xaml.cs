@@ -40,6 +40,15 @@ public partial class MainWindow : Window
     private Point _ocrDragStartPoint;
     private OcrResult? _ocrDraggedItem;
 
+    // Các biến trạng thái quản lý Zoom & Pan
+    private double _zoomScale = 1.0;
+    private const double MinScale = 0.1;
+    private const double MaxScale = 5.0;
+    private bool _isPanning;
+    private Point _panStartMousePosition;
+    private Point _panStartScrollOffset;
+    private bool _isFirstLayout = true;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -421,6 +430,7 @@ public partial class MainWindow : Window
             _rectangles.Clear();
             _ocrResults = new List<OcrResult>();
             lvOcrResult.ItemsSource = null;
+            UpdateZoom(1.0);
         }
     }
 
@@ -458,6 +468,8 @@ public partial class MainWindow : Window
                 DrawOcrBoxes();
             }
         }
+
+        FitToScreen();
     }
 
     private void DrawTranslatedText()
@@ -1526,5 +1538,237 @@ public partial class MainWindow : Window
     {
         StopOcrService();
         base.OnClosed(e);
+    }
+
+    private void UpdateZoom(double newScale)
+    {
+        _zoomScale = Math.Clamp(newScale, MinScale, MaxScale);
+        if (imgScaleTransform != null)
+        {
+            imgScaleTransform.ScaleX = _zoomScale;
+            imgScaleTransform.ScaleY = _zoomScale;
+        }
+        if (txtZoomPercent != null)
+        {
+            txtZoomPercent.Text = $"{Math.Round(_zoomScale * 100)}%";
+        }
+    }
+
+    private void FitToScreen()
+    {
+        if (imgComic == null || imgComic.Source is not BitmapSource bitmap || imageScrollViewer == null)
+            return;
+
+        double viewportWidth = imageScrollViewer.ActualWidth;
+        double viewportHeight = imageScrollViewer.ActualHeight;
+
+        if (viewportWidth == 0 || viewportHeight == 0)
+        {
+            UpdateZoom(1.0);
+            return;
+        }
+
+        double margin = 10;
+        double scaleX = (viewportWidth - margin) / bitmap.PixelWidth;
+        double scaleY = (viewportHeight - margin) / bitmap.PixelHeight;
+        double scale = Math.Min(scaleX, scaleY);
+
+        UpdateZoom(scale);
+    }
+
+    private void ZoomAtPoint(double newScale, Point mousePosInScrollViewer, Point mousePosInContent)
+    {
+        double oldScale = _zoomScale;
+        newScale = Math.Clamp(newScale, MinScale, MaxScale);
+
+        if (Math.Abs(newScale - oldScale) < 0.001)
+            return;
+
+        UpdateZoom(newScale);
+
+        imageScrollViewer.UpdateLayout();
+
+        double scaleRatio = newScale / oldScale;
+        double newHOffset = mousePosInContent.X * scaleRatio - mousePosInScrollViewer.X;
+        double newVOffset = mousePosInContent.Y * scaleRatio - mousePosInScrollViewer.Y;
+
+        imageScrollViewer.ScrollToHorizontalOffset(newHOffset);
+        imageScrollViewer.ScrollToVerticalOffset(newVOffset);
+    }
+
+    private void ZoomAtCenter(double zoomFactor)
+    {
+        double oldScale = _zoomScale;
+        double newScale = oldScale * zoomFactor;
+        newScale = Math.Clamp(newScale, MinScale, MaxScale);
+
+        if (Math.Abs(newScale - oldScale) < 0.001)
+            return;
+
+        Point scrollViewerCenter = new Point(imageScrollViewer.ActualWidth / 2, imageScrollViewer.ActualHeight / 2);
+        Point contentCenter = new Point(
+            imageScrollViewer.HorizontalOffset + scrollViewerCenter.X,
+            imageScrollViewer.VerticalOffset + scrollViewerCenter.Y
+        );
+        Point unscaledCenter = new Point(contentCenter.X / oldScale, contentCenter.Y / oldScale);
+
+        UpdateZoom(newScale);
+
+        imageScrollViewer.UpdateLayout();
+
+        double newHOffset = unscaledCenter.X * newScale - scrollViewerCenter.X;
+        double newVOffset = unscaledCenter.Y * newScale - scrollViewerCenter.Y;
+
+        imageScrollViewer.ScrollToHorizontalOffset(newHOffset);
+        imageScrollViewer.ScrollToVerticalOffset(newVOffset);
+    }
+
+    private void imageScrollViewer_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (Keyboard.Modifiers == ModifierKeys.Control)
+        {
+            double zoomFactor = e.Delta > 0 ? 1.1 : 0.9;
+            Point mousePosInScrollViewer = e.GetPosition(imageScrollViewer);
+            Point mousePosInContent = e.GetPosition(imageContainer);
+            ZoomAtPoint(_zoomScale * zoomFactor, mousePosInScrollViewer, mousePosInContent);
+            e.Handled = true;
+        }
+    }
+
+    private void imageScrollViewer_PreviewMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        // Detect double click to Fit to Screen
+        if (e.ChangedButton == MouseButton.Left && e.ClickCount == 2)
+        {
+            if (e.OriginalSource is DependencyObject depObj)
+            {
+                bool overInteractive = false;
+                while (depObj != null && depObj != imageScrollViewer)
+                {
+                    if (depObj is TextBox || depObj is Rectangle || depObj is ContextMenu || depObj is Button)
+                    {
+                        overInteractive = true;
+                        break;
+                    }
+                    depObj = VisualTreeHelper.GetParent(depObj);
+                }
+                if (!overInteractive)
+                {
+                    if (_isPanning)
+                    {
+                        imageScrollViewer.ReleaseMouseCapture();
+                        _isPanning = false;
+                        imageScrollViewer.Cursor = Cursors.Arrow;
+                    }
+                    FitToScreen();
+                    e.Handled = true;
+                    return;
+                }
+            }
+        }
+
+        bool isMiddleButton = e.ChangedButton == MouseButton.Middle && e.MiddleButton == MouseButtonState.Pressed;
+        bool isLeftButton = e.ChangedButton == MouseButton.Left && e.LeftButton == MouseButtonState.Pressed && btnManualOcr.IsChecked != true;
+
+        if (isMiddleButton || isLeftButton)
+        {
+            if (e.OriginalSource is DependencyObject depObj)
+            {
+                while (depObj != null && depObj != imageScrollViewer)
+                {
+                    if (depObj is TextBox || depObj is Rectangle || depObj is ContextMenu || depObj is Button)
+                    {
+                        return;
+                    }
+                    depObj = VisualTreeHelper.GetParent(depObj);
+                }
+            }
+
+            _isPanning = true;
+            _panStartMousePosition = e.GetPosition(imageScrollViewer);
+            _panStartScrollOffset = new Point(imageScrollViewer.HorizontalOffset, imageScrollViewer.VerticalOffset);
+            imageScrollViewer.CaptureMouse();
+            imageScrollViewer.Cursor = Cursors.SizeAll;
+            e.Handled = true;
+        }
+    }
+
+    private void imageScrollViewer_PreviewMouseMove(object sender, MouseEventArgs e)
+    {
+        if (_isPanning)
+        {
+            Point currentPos = e.GetPosition(imageScrollViewer);
+            Vector delta = currentPos - _panStartMousePosition;
+
+            imageScrollViewer.ScrollToHorizontalOffset(_panStartScrollOffset.X - delta.X);
+            imageScrollViewer.ScrollToVerticalOffset(_panStartScrollOffset.Y - delta.Y);
+            e.Handled = true;
+        }
+    }
+
+    private void imageScrollViewer_PreviewMouseUp(object sender, MouseButtonEventArgs e)
+    {
+        if (_isPanning)
+        {
+            imageScrollViewer.ReleaseMouseCapture();
+            _isPanning = false;
+            imageScrollViewer.Cursor = Cursors.Arrow;
+            e.Handled = true;
+        }
+    }
+
+    private void imageScrollViewer_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (_isFirstLayout && e.NewSize.Width > 0 && e.NewSize.Height > 0)
+        {
+            _isFirstLayout = false;
+            FitToScreen();
+        }
+    }
+
+    private void overlayCanvas_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ClickCount == 2)
+        {
+            FitToScreen();
+            e.Handled = true;
+        }
+    }
+
+    private void Window_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (Keyboard.Modifiers == ModifierKeys.Control)
+        {
+            if (e.Key == Key.OemPlus || e.Key == Key.Add)
+            {
+                ZoomAtCenter(1.2);
+                e.Handled = true;
+            }
+            else if (e.Key == Key.OemMinus || e.Key == Key.Subtract)
+            {
+                ZoomAtCenter(0.8);
+                e.Handled = true;
+            }
+            else if (e.Key == Key.D0 || e.Key == Key.NumPad0)
+            {
+                FitToScreen();
+                e.Handled = true;
+            }
+        }
+    }
+
+    private void btnZoomIn_Click(object sender, RoutedEventArgs e)
+    {
+        ZoomAtCenter(1.2);
+    }
+
+    private void btnZoomOut_Click(object sender, RoutedEventArgs e)
+    {
+        ZoomAtCenter(0.8);
+    }
+
+    private void btnZoomFit_Click(object sender, RoutedEventArgs e)
+    {
+        FitToScreen();
     }
 }
