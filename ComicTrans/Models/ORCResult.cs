@@ -49,6 +49,22 @@ namespace ComicTrans.Models
             }
         }
 
+        private string _textColor = "Black"; // Mặc định là chữ màu đen
+
+        [JsonIgnore]
+        public string TextColor
+        {
+            get => _textColor;
+            set
+            {
+                if (_textColor != value)
+                {
+                    _textColor = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
         public event PropertyChangedEventHandler? PropertyChanged;
 
         protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)

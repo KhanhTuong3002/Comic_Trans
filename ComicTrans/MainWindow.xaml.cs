@@ -60,7 +60,7 @@ public partial class MainWindow : Window
     {
         OpenFileDialog dlg = new()
         {
-            Filter = "Image|*.png;*.jpg;*.jpeg;*.bmp",
+            Filter = "Image|*.png;*.jpg;*.jpeg;*.bmp;*.webp",
             Multiselect = true
         };
 
@@ -256,6 +256,31 @@ public partial class MainWindow : Window
             MenuItem deleteItem = new() { Header = "Xóa OCR này" };
             deleteItem.Click += DeleteOcrResult_Click;
             contextMenu.Items.Add(deleteItem);
+
+            contextMenu.Items.Add(new Separator());
+
+            MenuItem colorSubMenu = new() { Header = "Màu chữ dịch" };
+            MenuItem blackColorItem = new() { Header = "Chữ màu đen", IsCheckable = true, IsChecked = item.TextColor != "White" };
+            MenuItem whiteColorItem = new() { Header = "Chữ màu trắng", IsCheckable = true, IsChecked = item.TextColor == "White" };
+
+            blackColorItem.Click += (s, e) =>
+            {
+                item.TextColor = "Black";
+                blackColorItem.IsChecked = true;
+                whiteColorItem.IsChecked = false;
+            };
+
+            whiteColorItem.Click += (s, e) =>
+            {
+                item.TextColor = "White";
+                blackColorItem.IsChecked = false;
+                whiteColorItem.IsChecked = true;
+            };
+
+            colorSubMenu.Items.Add(blackColorItem);
+            colorSubMenu.Items.Add(whiteColorItem);
+            contextMenu.Items.Add(colorSubMenu);
+
             rect.ContextMenu = contextMenu;
 
             rect.MouseLeftButtonDown += (s, e) =>
@@ -501,6 +526,7 @@ public partial class MainWindow : Window
                 VerticalContentAlignment = VerticalAlignment.Center,
                 FontFamily = new FontFamily("Segoe UI"),
                 FontWeight = FontWeights.Bold,
+                Foreground = item.TextColor == "White" ? Brushes.White : Brushes.Black,
                 AcceptsReturn = true,
                 Padding = new Thickness(2),
                 Margin = new Thickness(0),
@@ -527,6 +553,41 @@ public partial class MainWindow : Window
             contextMenu.Items.Add(pasteItem);
             contextMenu.Items.Add(new Separator());
             contextMenu.Items.Add(deleteItem);
+
+            contextMenu.Items.Add(new Separator());
+
+            MenuItem colorSubMenu = new() { Header = "Màu chữ dịch" };
+            MenuItem blackColorItem = new() { Header = "Chữ màu đen", IsCheckable = true, IsChecked = item.TextColor != "White" };
+            MenuItem whiteColorItem = new() { Header = "Chữ màu trắng", IsCheckable = true, IsChecked = item.TextColor == "White" };
+
+            blackColorItem.Click += (s, e) =>
+            {
+                item.TextColor = "Black";
+                textBox.Foreground = Brushes.Black;
+                if (textBox.Effect is System.Windows.Media.Effects.DropShadowEffect outline)
+                {
+                    outline.Color = Colors.White;
+                }
+                blackColorItem.IsChecked = true;
+                whiteColorItem.IsChecked = false;
+            };
+
+            whiteColorItem.Click += (s, e) =>
+            {
+                item.TextColor = "White";
+                textBox.Foreground = Brushes.White;
+                if (textBox.Effect is System.Windows.Media.Effects.DropShadowEffect outline)
+                {
+                    outline.Color = Colors.Black;
+                }
+                blackColorItem.IsChecked = false;
+                whiteColorItem.IsChecked = true;
+            };
+
+            colorSubMenu.Items.Add(blackColorItem);
+            colorSubMenu.Items.Add(whiteColorItem);
+            contextMenu.Items.Add(colorSubMenu);
+
             textBox.ContextMenu = contextMenu;
 
             // Tính toán cỡ chữ tối ưu lúc ban đầu hoặc lấy cỡ chữ tùy biến đã lưu
@@ -571,10 +632,10 @@ public partial class MainWindow : Window
                 }
             };
 
-            // Viền chữ bằng hiệu ứng bóng mờ màu trắng để tăng độ tương phản trên nền tối
+            // Viền chữ bằng hiệu ứng bóng mờ (Trắng nếu chữ đen, Đen nếu chữ trắng) để tăng độ tương phản trên nền tối
             var outlineEffect = new System.Windows.Media.Effects.DropShadowEffect
             {
-                Color = Colors.White,
+                Color = item.TextColor == "White" ? Colors.Black : Colors.White,
                 BlurRadius = 3,
                 ShadowDepth = 0,
                 Opacity = 1.0
@@ -1203,6 +1264,7 @@ public partial class MainWindow : Window
                 VerticalContentAlignment = VerticalAlignment.Center,
                 FontFamily = new FontFamily("Segoe UI"),
                 FontWeight = FontWeights.Bold,
+                Foreground = item.TextColor == "White" ? Brushes.White : Brushes.Black,
                 Text = item.Text,
                 Padding = new Thickness(2),
                 Margin = new Thickness(0)
@@ -1211,10 +1273,10 @@ public partial class MainWindow : Window
             // Sử dụng font size tùy biến nếu có, ngược lại tự động tính cỡ chữ tối ưu
             textBox.FontSize = item.FontSize > 0 ? item.FontSize : CalculateOptimalFontSize(item.Text, w, h);
 
-            // Hiệu ứng bóng mờ viền chữ trắng
+            // Hiệu ứng bóng mờ viền chữ (Trắng nếu chữ đen, Đen nếu chữ trắng)
             var outlineEffect = new System.Windows.Media.Effects.DropShadowEffect
             {
-                Color = Colors.White,
+                Color = item.TextColor == "White" ? Colors.Black : Colors.White,
                 BlurRadius = 3,
                 ShadowDepth = 0,
                 Opacity = 1.0
