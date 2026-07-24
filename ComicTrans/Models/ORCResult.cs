@@ -33,6 +33,38 @@ namespace ComicTrans.Models
         [JsonPropertyName("box")]
         public List<List<double>> Box { get; set; } = new();
 
+        private double _fontSize = 0; // 0 nghĩa là sử dụng tự động co giãn kích thước
+
+        [JsonIgnore]
+        public double FontSize
+        {
+            get => _fontSize;
+            set
+            {
+                if (_fontSize != value)
+                {
+                    _fontSize = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        private string _textColor = "Black"; // Mặc định là chữ màu đen
+
+        [JsonIgnore]
+        public string TextColor
+        {
+            get => _textColor;
+            set
+            {
+                if (_textColor != value)
+                {
+                    _textColor = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
         public event PropertyChangedEventHandler? PropertyChanged;
 
         protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)

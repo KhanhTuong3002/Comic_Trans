@@ -2,8 +2,10 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Comic Translator"
+        Icon="/orca.png"
         Width="1400"
-        Height="900">
+        Height="900"
+        KeyDown="Window_KeyDown">
 
     <DockPanel>
 
@@ -26,14 +28,25 @@
                     Margin="5"
                     Content="Quét văn bản" Click="Button_Click"/>
 
+            <ToggleButton x:Name="btnManualOcr"
+                          Width="110"
+                          Margin="5"
+                          Content="Quét thủ công"/>
+
             <Button x:Name="btnTranslate"
                     Width="90"
                     Margin="5"
                     Content="Dịch" Click="btnTranslate_Click"/>
 
-            <Button Width="90"
+            <Button x:Name="btnReplace"
+                    Width="90"
                     Margin="5"
-                    Content="Export"/>
+                    Content="Thay thế" Click="btnReplace_Click"/>
+
+            <Button x:Name="btnExport"
+                    Width="90"
+                    Margin="5"
+                    Content="Export" Click="btnExport_Click"/>
 
             <Separator/>
 
@@ -163,22 +176,111 @@
             <!-- Ảnh -->
             <Border Grid.Column="1"
                     BorderBrush="Gray"
-                     BorderThickness="1">
+                    BorderThickness="1"
+                    ClipToBounds="True">
 
-                <Viewbox Stretch="Uniform">
+                <Grid>
+                    <ScrollViewer x:Name="imageScrollViewer"
+                                  HorizontalScrollBarVisibility="Auto"
+                                  VerticalScrollBarVisibility="Auto"
+                                  Background="#F5F5F7"
+                                  Focusable="False"
+                                  PreviewMouseWheel="imageScrollViewer_PreviewMouseWheel"
+                                  PreviewMouseDown="imageScrollViewer_PreviewMouseDown"
+                                  PreviewMouseMove="imageScrollViewer_PreviewMouseMove"
+                                  PreviewMouseUp="imageScrollViewer_PreviewMouseUp"
+                                  SizeChanged="imageScrollViewer_SizeChanged">
+                        
+                        <Grid x:Name="imageContainer"
+                              HorizontalAlignment="Center"
+                              VerticalAlignment="Center">
+                            <Grid.LayoutTransform>
+                                <TransformGroup>
+                                    <ScaleTransform x:Name="imgScaleTransform" ScaleX="1.0" ScaleY="1.0"/>
+                                </TransformGroup>
+                            </Grid.LayoutTransform>
 
-                    <Grid>
+                            <Image x:Name="imgComic"
+                                   Width="{Binding ElementName=overlayCanvas, Path=Width}"
+                                   Height="{Binding ElementName=overlayCanvas, Path=Height}"
+                                   Stretch="Fill"/>
 
-                        <Image x:Name="imgComic"
-                                Stretch="Uniform"/>
+                            <Canvas x:Name="overlayCanvas"
+                                    Background="Transparent"
+                                    IsHitTestVisible="True"
+                                    MouseRightButtonDown="overlayCanvas_MouseRightButtonDown"
+                                    MouseRightButtonUp="overlayCanvas_MouseRightButtonUp"
+                                    MouseMove="overlayCanvas_MouseMove"
+                                    MouseLeftButtonDown="overlayCanvas_MouseLeftButtonDown"/>
 
-                        <Canvas x:Name="overlayCanvas"
-                                Background="Transparent"
-                                IsHitTestVisible="False"/>
+                        </Grid>
+                    </ScrollViewer>
 
-                    </Grid>
-
-                </Viewbox>
+                    <!-- Floating Zoom Controller (Glassmorphism card) -->
+                    <Border HorizontalAlignment="Right"
+                            VerticalAlignment="Bottom"
+                            Margin="15"
+                            Background="#D9FFFFFF"
+                            BorderBrush="#1A000000"
+                            BorderThickness="1"
+                            CornerRadius="20"
+                            Padding="4,2,4,2"
+                            SnapsToDevicePixels="True">
+                        <Border.Effect>
+                            <DropShadowEffect BlurRadius="12" ShadowDepth="2" Opacity="0.15" Color="#000000"/>
+                        </Border.Effect>
+                        <Border.Resources>
+                            <Style x:Key="ZoomButtonStyle" TargetType="Button">
+                                <Setter Property="Background" Value="Transparent"/>
+                                <Setter Property="BorderThickness" Value="0"/>
+                                <Setter Property="Width" Value="32"/>
+                                <Setter Property="Height" Value="32"/>
+                                <Setter Property="Margin" Value="1"/>
+                                <Setter Property="Cursor" Value="Hand"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="Button">
+                                            <Border x:Name="border" Background="{TemplateBinding Background}" CornerRadius="16">
+                                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="border" Property="Background" Value="#E0EBF5"/>
+                                                </Trigger>
+                                                <Trigger Property="IsPressed" Value="True">
+                                                    <Setter TargetName="border" Property="Background" Value="#C2D7EC"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </Border.Resources>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button Style="{StaticResource ZoomButtonStyle}"
+                                    Content="➖"
+                                    ToolTip="Thu nhỏ (Ctrl + Cuộn chuột xuống)"
+                                    Click="btnZoomOut_Click"/>
+                            <TextBlock x:Name="txtZoomPercent"
+                                       Text="100%"
+                                       Width="48"
+                                       FontWeight="Bold"
+                                       FontSize="11"
+                                       Foreground="#2C3E50"
+                                       VerticalAlignment="Center"
+                                       TextAlignment="Center"/>
+                            <Button Style="{StaticResource ZoomButtonStyle}"
+                                    Content="➕"
+                                    ToolTip="Phóng to (Ctrl + Cuộn chuột lên)"
+                                    Click="btnZoomIn_Click"/>
+                            <Separator Width="1" Height="20" Margin="4,0,4,0" Background="#1A000000"/>
+                            <Button Style="{StaticResource ZoomButtonStyle}"
+                                    Content="⛶"
+                                    ToolTip="Vừa màn hình (Ctrl + 0)"
+                                    Click="btnZoomFit_Click"/>
+                        </StackPanel>
+                    </Border>
+                </Grid>
 
             </Border>
 
@@ -196,8 +298,13 @@
                     Text="Result"/>
 
                     <ListView x:Name="lvOcrResult"
-                  SelectionChanged="lvOcrResult_SelectionChanged"
-                  HorizontalContentAlignment="Stretch">
+                              SelectionChanged="lvOcrResult_SelectionChanged"
+                              HorizontalContentAlignment="Stretch"
+                              AllowDrop="True"
+                              PreviewMouseLeftButtonDown="lvOcrResult_PreviewMouseLeftButtonDown"
+                              MouseMove="lvOcrResult_MouseMove"
+                              DragOver="lvOcrResult_DragOver"
+                              Drop="lvOcrResult_Drop">
 
                         <ListView.View>
 
@@ -216,7 +323,17 @@
                                                      Margin="1"
                                                      Width="260"
                                                      MinHeight="30"
-                                                     VerticalScrollBarVisibility="Auto"/>
+                                                     VerticalScrollBarVisibility="Auto">
+                                                <TextBox.ContextMenu>
+                                                    <ContextMenu>
+                                                        <MenuItem Command="Copy" Header="Sao chép"/>
+                                                        <MenuItem Command="Cut" Header="Cắt"/>
+                                                        <MenuItem Command="Paste" Header="Dán"/>
+                                                        <Separator/>
+                                                        <MenuItem Header="Xóa kết quả OCR này" Click="MenuDeleteOcr_Click"/>
+                                                    </ContextMenu>
+                                                </TextBox.ContextMenu>
+                                            </TextBox>
                                         </DataTemplate>
                                     </GridViewColumn.CellTemplate>
                                 </GridViewColumn>

@@ -52,6 +52,20 @@ namespace ComicTrans.Models
             set { _ocrResults = value; OnPropertyChanged(); }
         }
 
+        private string? _cleanImagePath;
+        public string? CleanImagePath
+        {
+            get => _cleanImagePath;
+            set { _cleanImagePath = value; OnPropertyChanged(); }
+        }
+
+        private bool _isReplaced;
+        public bool IsReplaced
+        {
+            get => _isReplaced;
+            set { _isReplaced = value; OnPropertyChanged(); }
+        }
+
         public event PropertyChangedEventHandler? PropertyChanged;
         protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
         {
