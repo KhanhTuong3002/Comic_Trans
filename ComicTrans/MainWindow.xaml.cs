@@ -1,5 +1,7 @@
 using ComicTrans.Models;
 using ComicTrans.Services;
+using ComicTrans.ViewModels;
+using ComicTrans.Helpers;
 using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
@@ -19,14 +21,11 @@ public partial class MainWindow : Window
 {
     private readonly OcrService _ocrService = new();
     private readonly TranslationService _translationService = new();
-
-    private List<OcrResult> _ocrResults = new();
+    private readonly MainViewModel _viewModel;
 
     private readonly List<Rectangle> _rectangles = new();
-
     private string? _currentImagePath;
 
-    private readonly ObservableCollection<PageItem> _pages = new();
     private Point _dragStartPoint;
     private PageItem? _draggedItem;
     private System.Diagnostics.Process? _ocrProcess;
@@ -52,187 +51,88 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        lbPages.ItemsSource = _pages;
+        
+        // Khởi tạo ViewModel và cấu hình các Delegate kết nối UI
+        _viewModel = new MainViewModel();
+
+        _viewModel.RequestFilesSelection = (filter) =>
+        {
+            OpenFileDialog dlg = new()
+            {
+                Filter = filter,
+                Multiselect = true
+            };
+            return dlg.ShowDialog() == true ? dlg.FileNames.ToList() : null;
+        };
+
+        _viewModel.RequestFolderSelection = (title) =>
+        {
+            var folderDlg = new Microsoft.Win32.OpenFolderDialog
+            {
+                Title = title
+            };
+            return folderDlg.ShowDialog() == true ? folderDlg.FolderName : null;
+        };
+
+        _viewModel.ShowConfirmDialog = (message, title, tag) =>
+        {
+            return MessageBox.Show(message, title, MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
+        };
+
+        _viewModel.ShowMessage = (message, title, isError) =>
+        {
+            MessageBox.Show(message, title, MessageBoxButton.OK, isError ? MessageBoxImage.Error : MessageBoxImage.Information);
+        };
+
+        _viewModel.SaveImageDelegate = async (page, path) =>
+        {
+            await Task.Run(() => 
+            {
+                Dispatcher.Invoke(() => 
+                {
+                    SaveReplacedImage(page, path);
+                });
+            });
+        };
+
+        // Lắng nghe sự kiện thay đổi trạng thái chọn trang để nạp ảnh/vẽ lại canvas
+        _viewModel.PropertyChanged += ViewModel_PropertyChanged;
+
+        this.DataContext = _viewModel;
         StartOcrService();
     }
 
-    private void btnOpen_Click(object sender, RoutedEventArgs e)
+    private void ViewModel_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
-        OpenFileDialog dlg = new()
+        if (e.PropertyName == nameof(MainViewModel.SelectedPage))
         {
-            Filter = "Image|*.png;*.jpg;*.jpeg;*.bmp;*.webp",
-            Multiselect = true
-        };
-
-        if (dlg.ShowDialog() != true)
-            return;
-
-        if (_pages.Count + dlg.FileNames.Length > 30)
-        {
-            MessageBox.Show($"Tổng số trang vượt quá giới hạn 30 trang (Hiện có: {_pages.Count}, Số trang thêm mới: {dlg.FileNames.Length}). Vui lòng chọn ít ảnh hơn.");
-            return;
-        }
-
-        int firstNewIndex = _pages.Count;
-
-        foreach (var file in dlg.FileNames)
-        {
-            var thumbnail = CreateThumbnail(file);
-            _pages.Add(new PageItem
+            if (_viewModel.SelectedPage != null)
             {
-                ImagePath = file,
-                PageName = System.IO.Path.GetFileName(file),
-                Thumbnail = thumbnail
-            });
-        }
-
-        UpdatePageNumbers();
-
-        // Tự động di chuyển chọn tới trang mới được nạp đầu tiên
-        lbPages.SelectedIndex = firstNewIndex;
-    }
-
-    private void btnNew_Click(object sender, RoutedEventArgs e)
-    {
-        if (_pages.Count > 0)
-        {
-            var result = MessageBox.Show(
-                "Bạn có chắc chắn muốn xóa danh sách trang hiện tại để làm mới không?",
-                "Bắt đầu dự án mới",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Warning);
-
-            if (result != MessageBoxResult.Yes)
-                return;
-        }
-
-        _pages.Clear();
-        _ocrResults = new List<OcrResult>();
-        lvOcrResult.ItemsSource = null;
-        overlayCanvas.Children.Clear();
-        _rectangles.Clear();
-        imgComic.Source = null;
-        _currentImagePath = null;
-        txtStatus.Text = "Đã làm mới danh sách trang.";
-    }
-
-    private ImageSource CreateThumbnail(string path)
-    {
-        try
-        {
-            BitmapImage bitmap = new();
-            bitmap.BeginInit();
-            bitmap.UriSource = new Uri(path);
-            bitmap.DecodePixelWidth = 100;
-            bitmap.CacheOption = BitmapCacheOption.OnLoad;
-            bitmap.EndInit();
-            bitmap.Freeze();
-            return bitmap;
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Failed to create thumbnail: {ex.Message}");
-            return new BitmapImage();
-        }
-    }
-
-    private void UpdatePageNumbers()
-    {
-        for (int i = 0; i < _pages.Count; i++)
-        {
-            _pages[i].PageNumber = i + 1;
-        }
-    }
-
-    private async void Button_Click(object sender, RoutedEventArgs e)
-    {
-        if (_pages.Count == 0)
-        {
-            MessageBox.Show("Vui lòng mở ảnh trước.");
-            return;
-        }
-
-        try
-        {
-            btnOCR.IsEnabled = false;
-            btnTranslate.IsEnabled = false;
-            btnOpen.IsEnabled = false;
-            pbProgress.Visibility = Visibility.Visible;
-            pbProgress.Maximum = _pages.Count;
-            pbProgress.Value = 0;
-
-            List<string> failedPages = new();
-            string lang = GetSelectedSourceLanguage();
-
-            for (int i = 0; i < _pages.Count; i++)
-            {
-                var page = _pages[i];
-                pbProgress.Value = i;
-
-                // Nếu trang đã có kết quả OCR thành công trước đó, bỏ qua không quét lại
-                if (page.OcrResults != null && page.OcrResults.Count > 0)
-                {
-                    continue;
-                }
-
-                txtStatus.Text = $"Đang nhận diện chữ (OCR) trang {i + 1}/{_pages.Count}: {page.PageName}...";
-
-                try
-                {
-                    var results = await _ocrService.RecognizeAsync(page.ImagePath, lang);
-                    page.OcrResults = results;
-                    page.IsTranslated = false; // Reset trạng thái dịch vì chữ vừa quét mới
-                    page.IsReplaced = false;
-                    page.CleanImagePath = null;
-
-                    // Nếu trang đang xử lý trùng khớp với trang đang được chọn, cập nhật UI
-                    if (lbPages.SelectedItem == page)
-                    {
-                        _ocrResults = results;
-                        DrawOcrBoxes();
-                        lvOcrResult.ItemsSource = _ocrResults;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"Failed to OCR page {page.PageName}: {ex.Message}");
-                    failedPages.Add(page.PageName);
-                }
-            }
-
-            pbProgress.Value = _pages.Count;
-
-            if (failedPages.Count > 0)
-            {
-                txtStatus.Text = $"Nhận diện chữ hoàn tất. Lỗi ở {failedPages.Count} trang.";
-                MessageBox.Show($"Đã hoàn thành nhận diện chữ (OCR).\n\nCó {failedPages.Count} trang gặp lỗi không thể nhận diện chữ:\n" + string.Join("\n", failedPages));
+                LoadPage(_viewModel.SelectedPage);
             }
             else
             {
-                txtStatus.Text = "Nhận diện chữ (OCR) hoàn thành cho tất cả các trang.";
-                MessageBox.Show("Đã hoàn thành nhận diện chữ (OCR) cho tất cả các trang.");
+                ClearPageDisplay();
             }
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show($"Lỗi không xác định trong quá trình OCR: {ex.Message}");
-            txtStatus.Text = "Lỗi nhận diện chữ (OCR).";
-        }
-        finally
-        {
-            btnOCR.IsEnabled = true;
-            btnTranslate.IsEnabled = true;
-            btnOpen.IsEnabled = true;
-            pbProgress.Visibility = Visibility.Collapsed;
         }
     }
 
-    private void DrawOcrBoxes()
+    private void ClearPageDisplay()
+    {
+        imgComic.Source = null;
+        overlayCanvas.Children.Clear();
+        _rectangles.Clear();
+        _currentImagePath = null;
+    }
+
+    private void DrawOcrBoxes(PageItem page)
     {
         overlayCanvas.Children.Clear();
         _rectangles.Clear();
 
-        foreach (var item in _ocrResults)
+        if (page.OcrResults == null) return;
+
+        foreach (var item in page.OcrResults)
         {
             if (item.Box.Count != 4)
                 continue;
@@ -254,7 +154,13 @@ public partial class MainWindow : Window
 
             ContextMenu contextMenu = new();
             MenuItem deleteItem = new() { Header = "Xóa OCR này" };
-            deleteItem.Click += DeleteOcrResult_Click;
+            deleteItem.Click += (s, e) =>
+            {
+                if (_viewModel.DeleteOcrCommand.CanExecute(item))
+                {
+                    _viewModel.DeleteOcrCommand.Execute(item);
+                }
+            };
             contextMenu.Items.Add(deleteItem);
 
             contextMenu.Items.Add(new Separator());
@@ -287,7 +193,7 @@ public partial class MainWindow : Window
             {
                 if (s is Rectangle r && r.Tag is OcrResult ocrResult)
                 {
-                    lvOcrResult.SelectedItem = ocrResult;
+                    _viewModel.SelectedOcrResult = ocrResult;
                     e.Handled = true;
                 }
             };
@@ -296,7 +202,7 @@ public partial class MainWindow : Window
             {
                 if (s is Rectangle r && r.Tag is OcrResult ocrResult)
                 {
-                    lvOcrResult.SelectedItem = ocrResult;
+                    _viewModel.SelectedOcrResult = ocrResult;
                     e.Handled = true;
                 }
             };
@@ -336,129 +242,6 @@ public partial class MainWindow : Window
             lvOcrResult.SelectedItem = item;
         }
     }
-
-    private async void btnTranslate_Click(object sender, RoutedEventArgs e)
-    {
-        if (_pages.Count == 0)
-        {
-            MessageBox.Show("Vui lòng mở ảnh và thực hiện OCR trước.");
-            return;
-        }
-
-        bool hasOcr = _pages.Any(p => p.OcrResults != null && p.OcrResults.Count > 0);
-        if (!hasOcr)
-        {
-            MessageBox.Show("Vui lòng thực hiện OCR trước khi dịch.");
-            return;
-        }
-
-        if (!_translationService.IsKeyConfigured())
-        {
-            MessageBox.Show("Vui lòng cấu hình Gemini API Key trong file config.json ở thư mục chạy ứng dụng trước khi dịch.");
-            return;
-        }
-
-        try
-        {
-            btnOCR.IsEnabled = false;
-            btnTranslate.IsEnabled = false;
-            btnOpen.IsEnabled = false;
-            pbProgress.Visibility = Visibility.Visible;
-            pbProgress.Maximum = _pages.Count;
-            pbProgress.Value = 0;
-
-            List<string> failedPages = new();
-
-            for (int i = 0; i < _pages.Count; i++)
-            {
-                var page = _pages[i];
-                if (page.OcrResults == null || page.OcrResults.Count == 0)
-                {
-                    continue;
-                }
-
-                pbProgress.Value = i;
-
-                // Nếu trang đã dịch thành công trước đó, bỏ qua không dịch lại
-                if (page.IsTranslated)
-                {
-                    continue;
-                }
-
-                txtStatus.Text = $"Đang dịch trang {i + 1}/{_pages.Count}: {page.PageName}...";
-
-                try
-                {
-                    var originalTexts = page.OcrResults.Select(r => r.Text).ToList();
-                    var translatedTexts = await _translationService.TranslateBatchAsync(originalTexts);
-
-                    for (int j = 0; j < Math.Min(page.OcrResults.Count, translatedTexts.Count); j++)
-                    {
-                        page.OcrResults[j].Text = translatedTexts[j];
-                    }
-
-                    page.IsTranslated = true; // Đánh dấu dịch thành công
-
-                    // Nếu trang đang dịch trùng khớp với trang đang được chọn, cập nhật UI
-                    if (lbPages.SelectedItem == page)
-                    {
-                        _ocrResults = page.OcrResults;
-                        lvOcrResult.ItemsSource = null;
-                        lvOcrResult.ItemsSource = _ocrResults;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"Failed to translate page {page.PageName}: {ex.Message}");
-                    failedPages.Add(page.PageName);
-                }
-            }
-
-            pbProgress.Value = _pages.Count;
-
-            if (failedPages.Count > 0)
-            {
-                txtStatus.Text = $"Dịch hoàn tất. Lỗi ở {failedPages.Count} trang.";
-                MessageBox.Show($"Đã hoàn thành dịch thuật.\n\nCó {failedPages.Count} trang gặp lỗi không thể dịch:\n" + string.Join("\n", failedPages));
-            }
-            else
-            {
-                txtStatus.Text = "Dịch thuật hoàn thành cho tất cả các trang.";
-                MessageBox.Show("Đã hoàn thành dịch thuật cho tất cả các trang.");
-            }
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show($"Lỗi không xác định khi dịch: {ex.Message}");
-            txtStatus.Text = "Lỗi dịch thuật.";
-        }
-        finally
-        {
-            btnOCR.IsEnabled = true;
-            btnTranslate.IsEnabled = true;
-            btnOpen.IsEnabled = true;
-            pbProgress.Visibility = Visibility.Collapsed;
-        }
-    }
-
-    private void lbPages_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (lbPages.SelectedItem is PageItem selectedPage)
-        {
-            LoadPage(selectedPage);
-        }
-        else
-        {
-            _currentImagePath = null;
-            imgComic.Source = null;
-            overlayCanvas.Children.Clear();
-            _rectangles.Clear();
-            _ocrResults = new List<OcrResult>();
-            lvOcrResult.ItemsSource = null;
-            UpdateZoom(1.0);
-        }
-    }
-
     private void LoadPage(PageItem page)
     {
         _currentImagePath = (page.IsReplaced && !string.IsNullOrEmpty(page.CleanImagePath) && File.Exists(page.CleanImagePath))
@@ -479,30 +262,29 @@ public partial class MainWindow : Window
         overlayCanvas.Children.Clear();
         _rectangles.Clear();
 
-        _ocrResults = page.OcrResults;
-        lvOcrResult.ItemsSource = _ocrResults;
-
-        if (_ocrResults != null && _ocrResults.Count > 0)
+        if (page.OcrResults != null && page.OcrResults.Count > 0)
         {
             if (page.IsReplaced)
             {
-                DrawTranslatedText();
+                DrawTranslatedText(page);
             }
             else
             {
-                DrawOcrBoxes();
+                DrawOcrBoxes(page);
             }
         }
 
         FitToScreen();
     }
 
-    private void DrawTranslatedText()
+    private void DrawTranslatedText(PageItem page)
     {
         overlayCanvas.Children.Clear();
         _rectangles.Clear();
 
-        foreach (var item in _ocrResults)
+        if (page.OcrResults == null) return;
+
+        foreach (var item in page.OcrResults)
         {
             if (item.Box.Count != 4)
                 continue;
@@ -537,7 +319,7 @@ public partial class MainWindow : Window
             {
                 if (s is TextBox tb && tb.Tag is OcrResult ocrResult)
                 {
-                    lvOcrResult.SelectedItem = ocrResult;
+                    _viewModel.SelectedOcrResult = ocrResult;
                 }
             };
 
@@ -546,7 +328,13 @@ public partial class MainWindow : Window
             MenuItem cutItem = new() { Command = ApplicationCommands.Cut, Header = "Cắt" };
             MenuItem pasteItem = new() { Command = ApplicationCommands.Paste, Header = "Dán" };
             MenuItem deleteItem = new() { Header = "Xóa OCR này" };
-            deleteItem.Click += DeleteOcrResult_Click;
+            deleteItem.Click += (s, e) =>
+            {
+                if (_viewModel.DeleteOcrCommand.CanExecute(item))
+                {
+                    _viewModel.DeleteOcrCommand.Execute(item);
+                }
+            };
 
             contextMenu.Items.Add(copyItem);
             contextMenu.Items.Add(cutItem);
@@ -686,72 +474,6 @@ public partial class MainWindow : Window
         return optimal;
     }
 
-    private async void btnReplace_Click(object sender, RoutedEventArgs e)
-    {
-        if (lbPages.SelectedItem is not PageItem selectedPage)
-        {
-            MessageBox.Show("Vui lòng mở ảnh trước.");
-            return;
-        }
-
-        if (selectedPage.OcrResults == null || selectedPage.OcrResults.Count == 0)
-        {
-            MessageBox.Show("Trang này chưa được quét OCR. Vui lòng quét OCR và dịch trước khi thay thế.");
-            return;
-        }
-
-        // Nếu đã thay thế rồi, bấm lại sẽ tắt chế độ thay thế
-        if (selectedPage.IsReplaced)
-        {
-            selectedPage.IsReplaced = false;
-            LoadPage(selectedPage);
-            txtStatus.Text = "Đã tắt chế độ thay thế.";
-            return;
-        }
-
-        try
-        {
-            btnReplace.IsEnabled = false;
-            pbProgress.Visibility = Visibility.Visible;
-            pbProgress.IsIndeterminate = true;
-            txtStatus.Text = "Đang thực hiện xóa chữ và thay thế bằng chữ dịch...";
-
-            // Thu thập các bounding box
-            var boxes = new List<List<List<double>>>();
-            foreach (var result in selectedPage.OcrResults)
-            {
-                boxes.Add(result.Box);
-            }
-
-            // Gọi API inpaint
-            byte[] cleanImageBytes = await _ocrService.InpaintAsync(selectedPage.ImagePath, boxes);
-
-            // Lưu file tạm sạch chữ
-            string dir = System.IO.Path.GetDirectoryName(selectedPage.ImagePath) ?? "";
-            string fileName = System.IO.Path.GetFileNameWithoutExtension(selectedPage.ImagePath) + "_clean.png";
-            string cleanPath = System.IO.Path.Combine(dir, fileName);
-
-            await File.WriteAllBytesAsync(cleanPath, cleanImageBytes);
-
-            selectedPage.CleanImagePath = cleanPath;
-            selectedPage.IsReplaced = true;
-
-            // Nạp lại trang hiển thị mới
-            LoadPage(selectedPage);
-            txtStatus.Text = "Thay thế chữ hoàn tất. Mẹo: Cuộn chuột trên chữ dịch để phóng to/thu nhỏ.";
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show($"Lỗi khi thực hiện thay thế chữ: {ex.Message}");
-            txtStatus.Text = "Lỗi thay thế chữ.";
-        }
-        finally
-        {
-            btnReplace.IsEnabled = true;
-            pbProgress.Visibility = Visibility.Collapsed;
-            pbProgress.IsIndeterminate = false;
-        }
-    }
 
     private void lbPages_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
@@ -796,13 +518,13 @@ public partial class MainWindow : Window
 
             if (droppedItem != null && targetItem != null && droppedItem != targetItem)
             {
-                int oldIndex = _pages.IndexOf(droppedItem);
-                int newIndex = _pages.IndexOf(targetItem);
+                int oldIndex = _viewModel.Pages.IndexOf(droppedItem);
+                int newIndex = _viewModel.Pages.IndexOf(targetItem);
 
                 if (oldIndex >= 0 && newIndex >= 0)
                 {
-                    _pages.Move(oldIndex, newIndex);
-                    UpdatePageNumbers();
+                    _viewModel.Pages.Move(oldIndex, newIndex);
+                    _viewModel.UpdatePageNumbers();
                 }
             }
         }
@@ -830,205 +552,6 @@ public partial class MainWindow : Window
             item.IsSelected = true;
             item.Focus();
         }
-    }
-
-    private async void MenuForceOcr_Click(object sender, RoutedEventArgs e)
-    {
-        if (lbPages.SelectedItem is PageItem selectedPage)
-        {
-            try
-            {
-                txtStatus.Text = $"Đang nhận diện lại chữ (Force OCR) cho: {selectedPage.PageName}...";
-                string lang = GetSelectedSourceLanguage();
-                var results = await _ocrService.RecognizeAsync(selectedPage.ImagePath, lang);
-                selectedPage.OcrResults = results;
-                selectedPage.IsTranslated = false; // Reset trạng thái dịch
-                selectedPage.IsReplaced = false;
-                selectedPage.CleanImagePath = null;
-
-                _ocrResults = results;
-                DrawOcrBoxes();
-                lvOcrResult.ItemsSource = _ocrResults;
-
-                txtStatus.Text = $"Đã quét lại thành công trang: {selectedPage.PageName}";
-                MessageBox.Show($"Đã quét lại thành công trang: {selectedPage.PageName}");
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Lỗi khi quét lại trang {selectedPage.PageName}: {ex.Message}");
-                txtStatus.Text = "Lỗi quét lại trang.";
-            }
-        }
-    }
-
-    private async void MenuForceTranslate_Click(object sender, RoutedEventArgs e)
-    {
-        if (lbPages.SelectedItem is PageItem selectedPage)
-        {
-            if (selectedPage.OcrResults == null || selectedPage.OcrResults.Count == 0)
-            {
-                MessageBox.Show("Trang này chưa được quét OCR. Vui lòng quét OCR trước.");
-                return;
-            }
-
-            if (!_translationService.IsKeyConfigured())
-            {
-                MessageBox.Show("Vui lòng cấu hình Gemini API Key trong file config.json.");
-                return;
-            }
-
-            try
-            {
-                txtStatus.Text = $"Đang dịch lại (Force Translate) cho: {selectedPage.PageName}...";
-                var originalTexts = selectedPage.OcrResults.Select(r => r.Text).ToList();
-                var translatedTexts = await _translationService.TranslateBatchAsync(originalTexts);
-
-                for (int i = 0; i < Math.Min(selectedPage.OcrResults.Count, translatedTexts.Count); i++)
-                {
-                    selectedPage.OcrResults[i].Text = translatedTexts[i];
-                }
-
-                selectedPage.IsTranslated = true;
-
-                _ocrResults = selectedPage.OcrResults;
-                lvOcrResult.ItemsSource = null;
-                lvOcrResult.ItemsSource = _ocrResults;
-
-                txtStatus.Text = $"Đã dịch lại thành công trang: {selectedPage.PageName}";
-                MessageBox.Show($"Đã dịch lại thành công trang: {selectedPage.PageName}");
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Lỗi khi dịch lại trang {selectedPage.PageName}: {ex.Message}");
-                txtStatus.Text = "Lỗi dịch lại trang.";
-            }
-        }
-    }
-
-    private void MenuClearResults_Click(object sender, RoutedEventArgs e)
-    {
-        if (lbPages.SelectedItem is PageItem selectedPage)
-        {
-            selectedPage.OcrResults = new List<OcrResult>();
-            selectedPage.IsTranslated = false;
-            selectedPage.IsReplaced = false;
-            selectedPage.CleanImagePath = null;
-            
-            if (lbPages.SelectedItem == selectedPage)
-            {
-                _ocrResults = selectedPage.OcrResults;
-                overlayCanvas.Children.Clear();
-                _rectangles.Clear();
-                lvOcrResult.ItemsSource = null;
-            }
-            txtStatus.Text = $"Đã xóa kết quả của trang: {selectedPage.PageName}";
-        }
-    }
-
-    private void MenuDeletePage_Click(object sender, RoutedEventArgs e)
-    {
-        if (lbPages.SelectedItem is PageItem selectedPage)
-        {
-            var result = MessageBox.Show(
-                $"Bạn có chắc chắn muốn xóa trang '{selectedPage.PageName}' khỏi danh sách không?",
-                "Xóa trang",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Question);
-
-            if (result != MessageBoxResult.Yes)
-                return;
-
-            int selectedIndex = _pages.IndexOf(selectedPage);
-            _pages.Remove(selectedPage);
-
-            UpdatePageNumbers();
-
-            if (_pages.Count > 0)
-            {
-                int nextSelectIndex = Math.Max(0, selectedIndex - 1);
-                if (nextSelectIndex < _pages.Count)
-                {
-                    lbPages.SelectedIndex = nextSelectIndex;
-                }
-                else
-                {
-                    lbPages.SelectedIndex = 0;
-                }
-            }
-            else
-            {
-                txtStatus.Text = "Danh sách trang trống.";
-            }
-        }
-    }
-
-    private void MenuDeleteOcr_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is MenuItem menuItem)
-        {
-            if (menuItem.DataContext is OcrResult ocrResult)
-            {
-                DeleteOcr(ocrResult);
-            }
-            else if (menuItem.Parent is ContextMenu contextMenu && contextMenu.PlacementTarget is FrameworkElement element && element.DataContext is OcrResult ocrRes)
-            {
-                DeleteOcr(ocrRes);
-            }
-        }
-    }
-
-    private void DeleteOcrResult_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is MenuItem menuItem && menuItem.Parent is ContextMenu contextMenu && contextMenu.PlacementTarget is FrameworkElement element)
-        {
-            if (element.Tag is OcrResult ocrResult)
-            {
-                DeleteOcr(ocrResult);
-            }
-        }
-    }
-
-    private void DeleteOcr(OcrResult ocrResult)
-    {
-        if (lbPages.SelectedItem is PageItem selectedPage)
-        {
-            var result = MessageBox.Show(
-                "Bạn có chắc chắn muốn xóa kết quả OCR này không?",
-                "Xác nhận xóa",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Question);
-
-            if (result == MessageBoxResult.Yes)
-            {
-                selectedPage.OcrResults.Remove(ocrResult);
-                _ocrResults = selectedPage.OcrResults;
-
-                // Cập nhật UI danh sách kết quả
-                lvOcrResult.ItemsSource = null;
-                lvOcrResult.ItemsSource = _ocrResults;
-
-                // Vẽ lại canvas
-                if (selectedPage.IsReplaced)
-                {
-                    DrawTranslatedText();
-                    txtStatus.Text = "Đã xóa kết quả OCR. Bấm 'Thay thế' lại để cập nhật ảnh nền sạch chữ nếu cần.";
-                }
-                else
-                {
-                    DrawOcrBoxes();
-                    txtStatus.Text = "Đã xóa kết quả OCR.";
-                }
-            }
-        }
-    }
-
-    private string GetSelectedSourceLanguage()
-    {
-        if (cbSourceLang.SelectedItem is ComboBoxItem selectedItem && selectedItem.Tag is string tag)
-        {
-            return tag;
-        }
-        return "en";
     }
 
     private string? FindOcrServicePath()
@@ -1127,78 +650,6 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void btnExport_Click(object sender, RoutedEventArgs e)
-    {
-        var replacedPages = _pages.Where(p => p.IsReplaced && !string.IsNullOrEmpty(p.CleanImagePath) && File.Exists(p.CleanImagePath)).ToList();
-
-        if (replacedPages.Count == 0)
-        {
-            MessageBox.Show("Không tìm thấy trang nào đã được thực hiện 'Thay thế' để xuất. Vui lòng bấm nút 'Thay thế' ở các trang bạn muốn xuất trước.", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Information);
-            return;
-        }
-
-        var confirmResult = MessageBox.Show(
-            $"Bạn có chắc chắn muốn xuất toàn bộ {replacedPages.Count} trang ảnh đã được thay thế chữ dịch không?",
-            "Xác nhận xuất ảnh",
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Question);
-
-        if (confirmResult != MessageBoxResult.Yes)
-            return;
-
-        var folderDlg = new Microsoft.Win32.OpenFolderDialog
-        {
-            Title = "Chọn thư mục xuất ảnh đã dịch"
-        };
-
-        if (folderDlg.ShowDialog() != true)
-            return;
-
-        string outputDir = folderDlg.FolderName;
-
-        try
-        {
-            btnExport.IsEnabled = false;
-            pbProgress.Visibility = Visibility.Visible;
-            pbProgress.Maximum = replacedPages.Count;
-            pbProgress.Value = 0;
-            Mouse.OverrideCursor = Cursors.Wait;
-
-            for (int i = 0; i < replacedPages.Count; i++)
-            {
-                var page = replacedPages[i];
-                txtStatus.Text = $"Đang xuất ảnh {i + 1}/{replacedPages.Count}: {page.PageName}...";
-                pbProgress.Value = i;
-
-                string outputFileName = System.IO.Path.ChangeExtension(page.PageName, ".png");
-                string outputPath = System.IO.Path.Combine(outputDir, outputFileName);
-                
-                // Thực thi tác vụ render trên luồng giao diện (STA thread)
-                await Task.Run(() => 
-                {
-                    Dispatcher.Invoke(() =>
-                    {
-                        SaveReplacedImage(page, outputPath);
-                    });
-                });
-            }
-
-            pbProgress.Value = replacedPages.Count;
-            txtStatus.Text = $"Đã xuất thành công {replacedPages.Count} ảnh vào thư mục: {outputDir}";
-            MessageBox.Show($"Đã xuất thành công {replacedPages.Count} ảnh đã được dịch!", "Xuất ảnh hoàn tất", MessageBoxButton.OK, MessageBoxImage.Information);
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show($"Lỗi trong quá trình xuất ảnh: {ex.Message}", "Lỗi xuất ảnh", MessageBoxButton.OK, MessageBoxImage.Error);
-            txtStatus.Text = "Lỗi xuất ảnh.";
-        }
-        finally
-        {
-            btnExport.IsEnabled = true;
-            pbProgress.Visibility = Visibility.Collapsed;
-            Mouse.OverrideCursor = null;
-        }
-    }
 
     private void SaveReplacedImage(PageItem page, string outputPath)
     {
@@ -1387,26 +838,26 @@ public partial class MainWindow : Window
             return; // Vùng chọn quá nhỏ
         }
 
-        if (lbPages.SelectedItem is not PageItem selectedPage)
+        if (_viewModel.SelectedPage is not PageItem selectedPage)
             return;
 
         try
         {
-            txtStatus.Text = "Đang quét vùng chọn...";
-            pbProgress.Visibility = Visibility.Visible;
-            pbProgress.IsIndeterminate = true;
+            _viewModel.StatusText = "Đang quét vùng chọn...";
+            _viewModel.IsProcessing = true;
+            _viewModel.IsProgressIndeterminate = true;
             btnManualOcr.IsEnabled = false;
 
             // 1. Cắt ảnh (Crop) trên C# client
             byte[] croppedBytes = CropImage(_currentImagePath ?? selectedPage.ImagePath, (int)left, (int)top, (int)width, (int)height);
 
             // 2. Gửi nhận diện OCR lên server
-            string lang = GetSelectedSourceLanguage();
+            string lang = _viewModel.SelectedSourceLanguage;
             var results = await _ocrService.RecognizeBytesAsync(croppedBytes, lang);
 
             if (results == null || results.Count == 0)
             {
-                txtStatus.Text = "Không tìm thấy chữ trong vùng chọn.";
+                _viewModel.StatusText = "Không tìm thấy chữ trong vùng chọn.";
                 return;
             }
 
@@ -1427,32 +878,28 @@ public partial class MainWindow : Window
             }
 
             selectedPage.OcrResults.AddRange(results);
-            _ocrResults = selectedPage.OcrResults;
-
-            // 5. Cập nhật giao diện hiển thị hộp bao
-            lvOcrResult.ItemsSource = null;
-            lvOcrResult.ItemsSource = _ocrResults;
+            _viewModel.UpdateOcrResults();
 
             if (selectedPage.IsReplaced)
             {
-                DrawTranslatedText();
+                DrawTranslatedText(selectedPage);
             }
             else
             {
-                DrawOcrBoxes();
+                DrawOcrBoxes(selectedPage);
             }
 
-            txtStatus.Text = $"Đã quét và thêm {results.Count} vùng văn bản mới.";
+            _viewModel.StatusText = $"Đã quét và thêm {results.Count} vùng văn bản mới.";
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Lỗi quét OCR thủ công: {ex.Message}");
-            txtStatus.Text = "Lỗi quét thủ công.";
+            _viewModel.ShowMessage?.Invoke($"Lỗi quét OCR thủ công: {ex.Message}", "Lỗi quét thủ công", true);
+            _viewModel.StatusText = "Lỗi quét thủ công.";
         }
         finally
         {
-            pbProgress.Visibility = Visibility.Collapsed;
-            pbProgress.IsIndeterminate = false;
+            _viewModel.IsProcessing = false;
+            _viewModel.IsProgressIndeterminate = false;
             btnManualOcr.IsEnabled = true;
         }
     }
@@ -1534,7 +981,7 @@ public partial class MainWindow : Window
 
             if (droppedItem != null && targetItem != null && droppedItem != targetItem)
             {
-                if (lbPages.SelectedItem is PageItem selectedPage)
+                if (_viewModel.SelectedPage is PageItem selectedPage)
                 {
                     int oldIndex = selectedPage.OcrResults.IndexOf(droppedItem);
                     int newIndex = selectedPage.OcrResults.IndexOf(targetItem);
@@ -1544,20 +991,16 @@ public partial class MainWindow : Window
                         selectedPage.OcrResults.RemoveAt(oldIndex);
                         selectedPage.OcrResults.Insert(newIndex, droppedItem);
 
-                        _ocrResults = selectedPage.OcrResults;
-
-                        // Cập nhật nguồn dữ liệu trên UI
-                        lvOcrResult.ItemsSource = null;
-                        lvOcrResult.ItemsSource = _ocrResults;
+                        _viewModel.UpdateOcrResults();
 
                         // Vẽ lại Canvas để khớp số thứ tự hoặc hiển thị text dịch tương ứng
                         if (selectedPage.IsReplaced)
                         {
-                            DrawTranslatedText();
+                            DrawTranslatedText(selectedPage);
                         }
                         else
                         {
-                            DrawOcrBoxes();
+                            DrawOcrBoxes(selectedPage);
                         }
                     }
                 }

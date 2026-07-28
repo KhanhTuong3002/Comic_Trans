@@ -7,6 +7,10 @@
         Height="900"
         KeyDown="Window_KeyDown">
 
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
+    </Window.Resources>
+
     <DockPanel>
 
         <!-- Thanh công cụ -->
@@ -15,18 +19,18 @@
             <Button x:Name="btnNew"
                     Width="90"
                     Margin="5"
-                    Content="New" Click="btnNew_Click"/>
+                    Content="New" Command="{Binding NewProjectCommand}"/>
 
             <Button x:Name="btnOpen"
                     Width="90"
                     Margin="5"
-                    Content="Tải ảnh " Click="btnOpen_Click"/>
+                    Content="Tải ảnh " Command="{Binding OpenImagesCommand}"/>
 
           
             <Button x:Name="btnOCR" 
                     Width="90"
                     Margin="5"
-                    Content="Quét văn bản" Click="Button_Click"/>
+                    Content="Quét văn bản" Command="{Binding RunOcrCommand}"/>
 
             <ToggleButton x:Name="btnManualOcr"
                           Width="110"
@@ -36,22 +40,22 @@
             <Button x:Name="btnTranslate"
                     Width="90"
                     Margin="5"
-                    Content="Dịch" Click="btnTranslate_Click"/>
+                    Content="Dịch" Command="{Binding TranslateCommand}"/>
 
             <Button x:Name="btnReplace"
                     Width="90"
                     Margin="5"
-                    Content="Thay thế" Click="btnReplace_Click"/>
+                    Content="Thay thế" Command="{Binding ReplaceCommand}"/>
 
             <Button x:Name="btnExport"
                     Width="90"
                     Margin="5"
-                    Content="Export" Click="btnExport_Click"/>
+                    Content="Export" Command="{Binding ExportCommand}"/>
 
             <Separator/>
 
             <Label Content="Nguồn:" VerticalAlignment="Center" Margin="5,0,0,0"/>
-            <ComboBox x:Name="cbSourceLang" Width="120" Margin="5" SelectedIndex="0">
+            <ComboBox x:Name="cbSourceLang" Width="120" Margin="5" SelectedValuePath="Tag" SelectedValue="{Binding SelectedSourceLanguage, Mode=TwoWay}">
                 <ComboBoxItem Content="Tiếng Anh (en)" Tag="en"/>
                 <ComboBoxItem Content="Tiếng Nhật (japan)" Tag="japan"/>
                 <ComboBoxItem Content="Tiếng Trung (ch)" Tag="ch"/>
@@ -67,10 +71,15 @@
         <!-- StatusBar ở dưới cùng -->
         <StatusBar DockPanel.Dock="Bottom" Height="30">
             <StatusBarItem Margin="5,0,0,0">
-                <TextBlock x:Name="txtStatus" Text="Ready" VerticalAlignment="Center"/>
+                <TextBlock x:Name="txtStatus" Text="{Binding StatusText}" VerticalAlignment="Center"/>
             </StatusBarItem>
             <StatusBarItem HorizontalAlignment="Right" Margin="0,0,5,0">
-                <ProgressBar x:Name="pbProgress" Width="150" Height="15" Minimum="0" Maximum="100" Visibility="Collapsed" VerticalAlignment="Center"/>
+                <ProgressBar x:Name="pbProgress" Width="150" Height="15" Minimum="0" 
+                             Value="{Binding ProgressValue}" 
+                             Maximum="{Binding ProgressMaximum}" 
+                             IsIndeterminate="{Binding IsProgressIndeterminate}"
+                             Visibility="{Binding IsProcessing, Converter={StaticResource BooleanToVisibilityConverter}}" 
+                             VerticalAlignment="Center"/>
             </StatusBarItem>
         </StatusBar>
 
@@ -100,7 +109,8 @@
                                Text="Pages"/>
 
                     <ListBox x:Name="lbPages"
-                             SelectionChanged="lbPages_SelectionChanged"
+                             ItemsSource="{Binding Pages}"
+                             SelectedItem="{Binding SelectedPage, Mode=TwoWay}"
                              AllowDrop="True"
                              Drop="lbPages_Drop"
                              DragOver="lbPages_DragOver"
@@ -110,15 +120,15 @@
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
-                                <Grid Margin="3" Background="Transparent">
+                                <Grid Margin="3" Background="Transparent" Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=ListBox}}">
                                     <Grid.ContextMenu>
                                         <ContextMenu>
-                                            <MenuItem Header="Quét lại trang này (Force OCR)" Click="MenuForceOcr_Click"/>
-                                            <MenuItem Header="Dịch lại trang này (Force Translate)" Click="MenuForceTranslate_Click"/>
+                                            <MenuItem Header="Quét lại trang này (Force OCR)" Command="{Binding PlacementTarget.Tag.ForceOcrCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                            <MenuItem Header="Dịch lại trang này (Force Translate)" Command="{Binding PlacementTarget.Tag.ForceTranslateCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
                                             <Separator/>
-                                            <MenuItem Header="Xóa kết quả (Clear)" Click="MenuClearResults_Click"/>
+                                            <MenuItem Header="Xóa kết quả (Clear)" Command="{Binding PlacementTarget.Tag.ClearResultsCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
                                             <Separator/>
-                                            <MenuItem Header="Xóa trang này (Delete)" Click="MenuDeletePage_Click"/>
+                                            <MenuItem Header="Xóa trang này (Delete)" Command="{Binding PlacementTarget.Tag.DeletePageCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
                                         </ContextMenu>
                                     </Grid.ContextMenu>
                                     <Grid.ColumnDefinitions>
@@ -298,13 +308,15 @@
                     Text="Result"/>
 
                     <ListView x:Name="lvOcrResult"
-                              SelectionChanged="lvOcrResult_SelectionChanged"
-                              HorizontalContentAlignment="Stretch"
-                              AllowDrop="True"
-                              PreviewMouseLeftButtonDown="lvOcrResult_PreviewMouseLeftButtonDown"
-                              MouseMove="lvOcrResult_MouseMove"
-                              DragOver="lvOcrResult_DragOver"
-                              Drop="lvOcrResult_Drop">
+                               ItemsSource="{Binding OcrResults}"
+                               SelectedItem="{Binding SelectedOcrResult, Mode=TwoWay}"
+                               SelectionChanged="lvOcrResult_SelectionChanged"
+                               HorizontalContentAlignment="Stretch"
+                               AllowDrop="True"
+                               PreviewMouseLeftButtonDown="lvOcrResult_PreviewMouseLeftButtonDown"
+                               MouseMove="lvOcrResult_MouseMove"
+                               DragOver="lvOcrResult_DragOver"
+                               Drop="lvOcrResult_Drop">
 
                         <ListView.View>
 
@@ -314,6 +326,7 @@
                                     <GridViewColumn.CellTemplate>
                                         <DataTemplate>
                                             <TextBox Text="{Binding Text, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                     Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=ListView}}"
                                                      TextWrapping="Wrap"
                                                      AcceptsReturn="True"
                                                      GotFocus="TextBox_GotFocus"
@@ -330,7 +343,7 @@
                                                         <MenuItem Command="Cut" Header="Cắt"/>
                                                         <MenuItem Command="Paste" Header="Dán"/>
                                                         <Separator/>
-                                                        <MenuItem Header="Xóa kết quả OCR này" Click="MenuDeleteOcr_Click"/>
+                                                        <MenuItem Header="Xóa kết quả OCR này" Command="{Binding PlacementTarget.Tag.DeleteOcrCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
                                                     </ContextMenu>
                                                 </TextBox.ContextMenu>
                                             </TextBox>
