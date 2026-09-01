@@ -18,4 +18,8 @@
     <Resource Include="orca.png" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="OCRService\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
