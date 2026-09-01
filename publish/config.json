@@ -1,0 +1,4 @@
+{
+  "GeminiApiKey": "YOUR_GEMINI_API_KEY_HERE",
+  "ModelName": "gemini-flash-lite-latest"
+}
